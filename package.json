@@ -1,0 +1,33 @@
+{
+  "name": "hanzimaster-backend-v2",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev src/index.ts",
+    "deploy": "wrangler deploy --minify src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "test": "vitest run",
+    "mint:jwt": "node scripts/mint-jwt.mjs",
+    "secrets:setup": "./scripts/setup-secrets.sh",
+    "secrets:list": "wrangler secret list"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.5",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.6.12",
+    "jose": "^6.1.2",
+    "nanoid": "^5.1.6",
+    "openai": "^6.9.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241112.0",
+    "@types/node": "^24.10.1",
+    "drizzle-kit": "^0.28.1",
+    "miniflare": "^3.20250718.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.13",
+    "wrangler": "^4.50.0"
+  }
+}

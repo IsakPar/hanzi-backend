@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hanzimaster-backend-v2",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-12",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hanzimaster-db",
+      "database_id": "1efb8c59-c109-4167-92a3-39ed970cdfff",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CONTENT_BUCKET",
+      "bucket_name": "hanzimaster-content",
+      "preview_bucket_name": "hanzimaster-content-dev"
+    }
+  ],
+  // Environment Variables (non-secret)
+  "vars": {
+    "ENVIRONMENT": "development",
+    "MAX_REQUESTS_PER_DAY": "10",
+    "MAX_TOKENS_PER_DAY": "5000",
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000,https://polymasterlabs.com,https://www.polymasterlabs.com,https://studio.polymasterlabs.com,https://portal.polymasterlabs.com,https://admin.polymasterlabs.com,https://app.polymasterlabs.com",
+    "DEFAULT_AI_MODEL": "gpt-5-nano",
+    "JWT_MAX_AGE": "7d",
+    "ALLOW_LEGACY_AUTH": "false",
+    "VALIDATOR_URL": "https://hanzi-vocab-val-u53gq.sevalla.app"
+  },
+  // Scheduled cron jobs
+  "triggers": {
+    "crons": [
+      "0 */6 * * *",    // Every 6 hours: cleanup orphaned uploads
+      "*/10 * * * *",   // Every 10 minutes: engagement event aggregation
+      "0 3 * * *"       // Daily at 3 AM UTC: backup critical data to R2
+    ]
+  },
+  // Secrets (Set via: npx wrangler secret put <KEY_NAME>)
+  // Authentication:
+  // - CLERK_PUBLISHABLE_KEY
+  // - CLERK_SECRET_KEY
+  // - CLERK_JWT_ISSUER
+  // - CLERK_JWKS_URL
+  // Billing:
+  // - REVENUECAT_PUBLIC_API_KEY
+  // - REVENUECAT_SECRET_API_KEY
+  // - REVENUECAT_WEBHOOK_SECRET
+  // AI Services:
+  // - OPENAI_API_KEY
+  // - OPENAI_BASE_URL (optional)
+  // Legacy:
+  // - ADMIN_SECRET
+  // - JWT_SECRET
+}

@@ -1,0 +1,79 @@
+# Hanzimaster Backend - Environment Variables Template
+# Copy this file to .dev.vars and fill in your actual values
+# DO NOT commit .dev.vars to git (it's already in .gitignore)
+
+# ========================================
+# AUTHENTICATION (Clerk)
+# ========================================
+# Get these from: https://dashboard.clerk.com → Your App → API Keys
+
+# Publishable key (safe to expose in frontend)
+CLERK_PUBLISHABLE_KEY=pk_test_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# Secret key (NEVER expose in frontend)
+CLERK_SECRET_KEY=sk_test_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# JWT Issuer URL (found in Clerk Dashboard → JWT Templates)
+# Format: https://your-app-name.clerk.accounts.dev
+CLERK_JWT_ISSUER=https://your-app.clerk.accounts.dev
+
+# JWKS URL for JWT verification (always .well-known/jwks.json under issuer)
+CLERK_JWKS_URL=https://your-app.clerk.accounts.dev/.well-known/jwks.json
+
+# ========================================
+# BILLING (RevenueCat)
+# ========================================
+# Get these from: https://app.revenuecat.com → Settings → API Keys
+
+# Public API Key (safe to use in mobile apps)
+REVENUECAT_PUBLIC_API_KEY=appl_XXXXXXXXXXXXXXXXXXXXXXXX
+
+# Secret API Key (for server-side API calls)
+REVENUECAT_SECRET_API_KEY=sk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# Webhook Secret (from RevenueCat Dashboard → Integrations → Webhooks → Authorization)
+REVENUECAT_WEBHOOK_SECRET=your-webhook-authorization-header-value
+
+# ========================================
+# AI SERVICES (OpenAI)
+# ========================================
+# Get from: https://platform.openai.com/api-keys
+
+OPENAI_API_KEY=sk-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# Optional: Custom OpenAI-compatible endpoint
+# OPENAI_BASE_URL=https://api.openai.com/v1
+
+# ========================================
+# LEGACY / INTERNAL SECRETS
+# ========================================
+
+# Legacy admin secret (for backward compatibility with old admin endpoints)
+ADMIN_SECRET=generate-a-strong-random-secret-here
+
+# JWT signing secret for internal tokens (32+ random characters recommended)
+# Generate with: openssl rand -base64 32
+JWT_SECRET=generate-a-different-strong-random-secret-here
+
+# JWT token expiration (default: 7 days)
+JWT_MAX_AGE=7d
+
+# ========================================
+# RATE LIMITING (Fallback Values)
+# ========================================
+# These are overridden by tier_limits table in production
+# Only used if database query fails
+
+MAX_REQUESTS_PER_DAY=10
+MAX_TOKENS_PER_DAY=5000
+
+# ========================================
+# OPTIONAL CONFIGURATION
+# ========================================
+
+# Default AI model if none is active in database
+DEFAULT_AI_MODEL=gpt-5-nano
+
+# CORS allowed origins (comma-separated)
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+

@@ -1,0 +1,28 @@
+-- Vocabulary Metadata Seed (HSK 1 Glue Words)
+INSERT INTO vocabulary (id, hanzi, pinyin, english, category, hsk_level, tags) VALUES
+('word_ni', '你', 'nǐ', 'you', 'pronoun', 1, '["person"]'),
+('word_hao', '好', 'hǎo', 'good', 'adjective', 1, '["positive"]'),
+('word_wo', '我', 'wǒ', 'I/me', 'pronoun', 1, '["person"]'),
+('word_shi', '是', 'shì', 'to be', 'verb', 1, '["grammar"]'),
+('word_ren', '人', 'rén', 'person', 'noun', 1, '["people"]'),
+('word_de', '的', 'de', 'possessive particle', 'particle', 1, '["grammar"]'),
+('word_zai', '在', 'zài', 'at/in', 'preposition', 1, '["location"]'),
+('word_bu', '不', 'bù', 'not/no', 'adverb', 1, '["negation"]'),
+('word_you', '有', 'yǒu', 'have', 'verb', 1, '["possession"]'),
+('word_he', '和', 'hé', 'and', 'conjunction', 1, '["connector"]'),
+('word_zhe', '这', 'zhè', 'this', 'pronoun', 1, '["pointer"]'),
+('word_zhongguo', '中国', 'Zhōngguó', 'China', 'location', 1, '["country"]'),
+('word_ta', '他', 'tā', 'he/him', 'pronoun', 1, '["person"]'),
+('word_women', '我们', 'wǒmen', 'we/us', 'pronoun', 1, '["person"]'),
+('word_laishi', '老师', 'lǎoshī', 'teacher', 'job', 1, '["school"]'),
+('word_xuesheng', '学生', 'xuésheng', 'student', 'job', 1, '["school"]'),
+('word_xihuan', '喜欢', 'xǐhuan', 'like', 'verb', 1, '["emotion"]'),
+('word_chi', '吃', 'chī', 'eat', 'verb', 1, '["food"]'),
+('word_fan', '饭', 'fàn', 'rice/meal', 'noun', 1, '["food"]'),
+('word_shui', '水', 'shuǐ', 'water', 'noun', 1, '["drink"]'),
+('word_cha', '茶', 'chá', 'tea', 'noun', 1, '["drink"]'),
+('word_pingguo', '苹果', 'píngguǒ', 'apple', 'noun', 1, '["food", "fruit"]'),
+('word_tian', '天', 'tiān', 'day/sky', 'noun', 1, '["time"]'),
+('word_jintian', '今天', 'jīntiān', 'today', 'noun', 1, '["time"]'),
+('word_mingtian', '明天', 'míngtiān', 'tomorrow', 'noun', 1, '["time"]');
+

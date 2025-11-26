@@ -1,0 +1,24 @@
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+
+# Environment
+.env
+.env.local
+.dev.vars
+
+# Logs
+*.log
+wrangler.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
