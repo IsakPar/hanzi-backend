@@ -17,6 +17,7 @@ import waitlistRouter from './routes/waitlist';
 import curriculumDerivedRouter from './routes/curriculum-derived';
 import validatorRouter from './routes/validator';
 import speechRouter from './routes/speech';
+import authRouter from './routes/auth';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -110,6 +111,7 @@ app.route('/v1/waitlist', waitlistRouter);
 app.route('/v1/curriculum', curriculumDerivedRouter);
 app.route('/v1/validator', validatorRouter);
 app.route('/v1/speech', speechRouter);
+app.route('/v1/auth', authRouter); // Better Auth routes
 
 // Export default handler with cron support
 export default {

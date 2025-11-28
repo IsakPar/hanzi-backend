@@ -757,3 +757,74 @@ export const curriculumVersion = sqliteTable('curriculum_version', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
 });
 
+// ═══════════════════════════════════════════════════════════
+// BETTER AUTH TABLES
+// Prefixed with 'ba_' to avoid conflicts with existing tables
+// ═══════════════════════════════════════════════════════════
+
+// --- BA USER ---
+export const baUser = sqliteTable('ba_user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').unique().notNull(),
+  emailVerified: integer('emailVerified', { mode: 'boolean' }).default(false),
+  image: text('image'),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  // Custom fields
+  role: text('role', { enum: ['user', 'admin'] }).default('user'),
+  tier: text('tier', { enum: ['free', 'premium', 'pro'] }).default('free'),
+  subscriptionStatus: text('subscription_status').default('none'),
+  subscriptionPlatform: text('subscription_platform'),
+  subscriptionExpiresAt: integer('subscription_expires_at', { mode: 'timestamp' }),
+  lastLoginAt: integer('last_login_at', { mode: 'timestamp' }),
+}, (table) => ({
+  emailIdx: index('ba_user_email_idx').on(table.email),
+}));
+
+// --- BA SESSION ---
+export const baSession = sqliteTable('ba_session', {
+  id: text('id').primaryKey(),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  token: text('token').unique().notNull(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  ipAddress: text('ipAddress'),
+  userAgent: text('userAgent'),
+  userId: text('userId').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  userIdIdx: index('ba_session_userId_idx').on(table.userId),
+  tokenIdx: index('ba_session_token_idx').on(table.token),
+}));
+
+// --- BA ACCOUNT ---
+export const baAccount = sqliteTable('ba_account', {
+  id: text('id').primaryKey(),
+  accountId: text('accountId').notNull(),
+  providerId: text('providerId').notNull(),
+  userId: text('userId').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
+  accessToken: text('accessToken'),
+  refreshToken: text('refreshToken'),
+  idToken: text('idToken'),
+  accessTokenExpiresAt: integer('accessTokenExpiresAt', { mode: 'timestamp' }),
+  refreshTokenExpiresAt: integer('refreshTokenExpiresAt', { mode: 'timestamp' }),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+}, (table) => ({
+  userIdIdx: index('ba_account_userId_idx').on(table.userId),
+}));
+
+// --- BA VERIFICATION ---
+export const baVerification = sqliteTable('ba_verification', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+}, (table) => ({
+  identifierIdx: index('ba_verification_identifier_idx').on(table.identifier),
+}));
+

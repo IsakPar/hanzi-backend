@@ -21,16 +21,20 @@ export type AppBindings = {
   DEFAULT_AI_MODEL?: string;
   MAX_REQUESTS_PER_DAY?: string;
   MAX_TOKENS_PER_DAY?: string;
-  ALLOW_LEGACY_AUTH?: string;
-  // Clerk Auth
-  CLERK_PUBLISHABLE_KEY?: string;
-  CLERK_SECRET_KEY?: string;
-  CLERK_JWT_ISSUER?: string;
-  CLERK_JWKS_URL?: string;
+  // Better Auth
+  BETTER_AUTH_SECRET: string;
+  BETTER_AUTH_URL?: string;
+  RESEND_API_KEY?: string;
+  PORTAL_URL?: string;
+  // OpenRouter
+  OPENROUTER_API_KEY?: string;
+  VALIDATOR_URL?: string;
   // RevenueCat
   REVENUECAT_PUBLIC_API_KEY?: string;
   REVENUECAT_SECRET_API_KEY?: string;
   REVENUECAT_WEBHOOK_SECRET?: string;
+  // ElevenLabs
+  ELEVENLABS_API_KEY?: string;
 };
 
 export type AppVariables = {

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import { AnalyticsService } from '../services/analytics';
 import { UserAnalyticsService } from '../services/user-analytics';
 import type { AppEnv } from '../types/app';
@@ -29,7 +29,7 @@ const daysSchema = z.object({
 
 const app = new Hono<AppEnv>();
 
-app.use('/*', authMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
 
 /**
  * Get user statistics (legacy endpoint - kept for backwards compatibility)

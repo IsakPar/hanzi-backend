@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import { AnalyticsService } from '../services/analytics';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
@@ -9,7 +9,7 @@ import { logWithContext } from '../utils/logger';
 const app = new Hono<AppEnv>();
 
 // All speech endpoints require admin auth
-app.use('/*', authMiddleware({ allowRoles: ['admin', 'user'] }));
+app.use('/*', betterAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
 // ═══════════════════════════════════════════════════════════
 // VOICE CONFIGURATION

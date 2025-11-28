@@ -4,7 +4,7 @@ import { lessons, lessonBlocks, waitlist, tierLimits } from '../schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { createRevenueCatClient } from '../services/revenuecat-client';
@@ -45,8 +45,8 @@ const DEFAULT_TIER_LIMITS = {
 
 const app = new Hono<AppEnv>();
 
-// Protect all routes in this file
-app.use('/*', authMiddleware({ allowRoles: ['admin'] }));
+// Protect all routes in this file - requires admin role via Better Auth session
+app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
 
 // Get Waitlist
 app.get('/waitlist', async (c) => {

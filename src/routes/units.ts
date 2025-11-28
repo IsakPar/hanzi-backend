@@ -4,14 +4,14 @@ import { units, lessons } from '../schema';
 import { eq, and, asc, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 
 const app = new Hono<AppEnv>();
 
 // Protect all routes - admin only
-app.use('/*', authMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
 
 // ==================== VALIDATION SCHEMAS ====================
 

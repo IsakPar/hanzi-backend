@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import { AIService } from '../domains/ai/services/ai.service';
 import { RateLimitExceededError } from '../services/rate-limit';
 import { AnalyticsService } from '../services/analytics';
@@ -15,7 +15,7 @@ import OpenAI from 'openai';
 
 const app = new Hono<AppEnv>();
 
-app.use('/*', authMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
 
 // Schema for the "Piggyback" Request
 const generateSchema = z.object({

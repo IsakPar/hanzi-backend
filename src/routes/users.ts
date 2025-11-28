@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
-import { authMiddleware } from '../middleware/auth';
+import { betterAuthMiddleware } from '../middleware/better-auth';
 import { logWithContext } from '../utils/logger';
 import { tierLimits } from '../schema';
 
@@ -47,7 +47,7 @@ const DEFAULT_TIER_LIMITS = {
  * Get current user profile
  * Returns user information including tier and subscription status
  */
-usersRouter.get('/me', authMiddleware(), async (c) => {
+usersRouter.get('/me', betterAuthMiddleware(), async (c) => {
   const user = c.get('user');
   const requestId = c.get('requestId');
   
@@ -147,7 +147,7 @@ usersRouter.get('/me', authMiddleware(), async (c) => {
 /**
  * Update user profile (name only for now)
  */
-usersRouter.patch('/me', authMiddleware(), zValidator('json', updateProfileSchema), async (c) => {
+usersRouter.patch('/me', betterAuthMiddleware(), zValidator('json', updateProfileSchema), async (c) => {
   const user = c.get('user');
   const requestId = c.get('requestId');
   
@@ -181,7 +181,7 @@ usersRouter.patch('/me', authMiddleware(), zValidator('json', updateProfileSchem
 /**
  * Get usage statistics for current user
  */
-usersRouter.get('/me/usage', authMiddleware(), async (c) => {
+usersRouter.get('/me/usage', betterAuthMiddleware(), async (c) => {
   const user = c.get('user');
   const requestId = c.get('requestId');
   

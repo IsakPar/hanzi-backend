@@ -12,6 +12,40 @@ import type { AppEnv } from '../types/app';
 const authRouter = new Hono<AppEnv>();
 
 /**
+ * Bootstrap endpoint: Promote a user to admin
+ * Only works if no admins exist yet (bootstrap scenario)
+ * Or if the request comes from localhost
+ */
+authRouter.post('/promote-admin', async (c) => {
+  const body = await c.req.json();
+  const { email } = body;
+
+  if (!email) {
+    return c.json({ error: 'Email required' }, 400);
+  }
+
+  // Check if request is from localhost (bootstrap scenario)
+  const origin = c.req.header('origin') || '';
+  const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
+  
+  if (!isLocal) {
+    return c.json({ error: 'This endpoint is only available locally' }, 403);
+  }
+
+  try {
+    // Update user role to admin
+    await c.env.DB
+      .prepare('UPDATE ba_user SET role = ?, tier = ? WHERE email = ?')
+      .bind('admin', 'pro', email)
+      .run();
+
+    return c.json({ success: true, message: `User ${email} promoted to admin` });
+  } catch (error) {
+    return c.json({ error: 'Failed to promote user' }, 500);
+  }
+});
+
+/**
  * Handle all auth requests through Better Auth
  * Better Auth exposes endpoints like:
  * - POST /sign-up/email
