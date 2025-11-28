@@ -29,7 +29,7 @@
     "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000,https://polymasterlabs.com,https://www.polymasterlabs.com,https://studio.polymasterlabs.com,https://portal.polymasterlabs.com,https://admin.polymasterlabs.com,https://app.polymasterlabs.com",
     "DEFAULT_AI_MODEL": "gpt-5-nano",
     "JWT_MAX_AGE": "7d",
-    "ALLOW_LEGACY_AUTH": "false",
+    "ALLOW_LEGACY_AUTH": "true",
     "VALIDATOR_URL": "https://hanzi-vocab-val-u53gq.sevalla.app"
   },
   // Scheduled cron jobs

@@ -5,20 +5,11 @@ import type { AppEnv, AppUser } from '../types/app';
 import { logWithContext } from '../utils/logger';
 
 // ═══════════════════════════════════════════════════════════════════════
-// ⚠️  DEV BYPASS MODE - SET TO FALSE BEFORE PRODUCTION DEPLOYMENT ⚠️
-// ═══════════════════════════════════════════════════════════════════════
-// When true, ALL authentication is bypassed and requests are treated as
-// coming from a dev admin user. This is EXTREMELY DANGEROUS in production.
+// Auth is now ENABLED. Using legacy JWT auth with tokens sent in
+// Authorization header. This works across different origins.
 // 
-// See: AUTH_BYPASS_WARNING.md for full details
-// ═══════════════════════════════════════════════════════════════════════
-const AUTH_BYPASS_MODE = true;
-const BYPASS_USER: AppUser = {
-  id: 'dev-bypass-admin',
-  role: 'admin',
-  email: 'dev@hanzimaster.local',
-  tier: 'pro',
-};
+// For dev: Generate token with `node scripts/mint-jwt.mjs --sub dev-admin --role admin`
+// Set JWT_SECRET and ALLOW_LEGACY_AUTH=true in wrangler.jsonc
 // ═══════════════════════════════════════════════════════════════════════
 
 type AuthOptions = {
@@ -29,13 +20,6 @@ export const authMiddleware = (options?: AuthOptions): MiddlewareHandler<AppEnv>
   const allowedRoles = options?.allowRoles;
 
   return async (c, next) => {
-    // ⚠️ DEV BYPASS - Skip all auth checks
-    if (AUTH_BYPASS_MODE) {
-      c.set('user', BYPASS_USER);
-      await next();
-      return;
-    }
-
     const authHeader = c.req.header('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new HTTPException(401, { message: 'Missing or invalid Authorization header' });
