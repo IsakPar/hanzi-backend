@@ -1,0 +1,47 @@
+/**
+ * Better Auth Route Handler
+ * 
+ * Mounts Better Auth at /v1/auth/*
+ * All auth endpoints are handled by Better Auth automatically
+ */
+
+import { Hono } from 'hono';
+import { createAuth } from '../lib/auth';
+import type { AppEnv } from '../types/app';
+
+const authRouter = new Hono<AppEnv>();
+
+/**
+ * Handle all auth requests through Better Auth
+ * Better Auth exposes endpoints like:
+ * - POST /sign-up/email
+ * - POST /sign-in/email
+ * - POST /sign-out
+ * - GET /session
+ * - POST /forget-password
+ * - POST /reset-password
+ * - etc.
+ */
+authRouter.all('/*', async (c) => {
+  const auth = createAuth(c.env.DB, {
+    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+    RESEND_API_KEY: c.env.RESEND_API_KEY,
+    PORTAL_URL: c.env.PORTAL_URL,
+  });
+  
+  // Better Auth expects the full path, so we need to construct it
+  const url = new URL(c.req.url);
+  // Rewrite path from /v1/auth/* to /api/auth/*
+  url.pathname = url.pathname.replace('/v1/auth', '/api/auth');
+  
+  const request = new Request(url.toString(), {
+    method: c.req.method,
+    headers: c.req.raw.headers,
+    body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
+  });
+  
+  return auth.handler(request);
+});
+
+export default authRouter;
