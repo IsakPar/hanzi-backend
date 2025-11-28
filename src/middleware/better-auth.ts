@@ -34,9 +34,17 @@ export const betterAuthMiddleware = (options?: AuthOptions): MiddlewareHandler<A
     try {
       // Get session from Better Auth
       // Better Auth reads cookies from the request automatically
-      const session = await auth.api.getSession({
+      // We need to create a proper Request object with the cookies
+      const url = new URL(c.req.url);
+      url.pathname = '/api/auth/get-session';
+      
+      const sessionRequest = new Request(url.toString(), {
+        method: 'GET',
         headers: c.req.raw.headers,
       });
+      
+      const sessionResponse = await auth.handler(sessionRequest);
+      const session = await sessionResponse.json();
 
       if (!session || !session.user) {
         throw new HTTPException(401, { message: 'Not authenticated' });
