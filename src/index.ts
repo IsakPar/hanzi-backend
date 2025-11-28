@@ -16,6 +16,7 @@ import unitsRouter from './routes/units';
 import waitlistRouter from './routes/waitlist';
 import curriculumDerivedRouter from './routes/curriculum-derived';
 import validatorRouter from './routes/validator';
+import speechRouter from './routes/speech';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -108,6 +109,7 @@ app.route('/v1/units', unitsRouter);
 app.route('/v1/waitlist', waitlistRouter);
 app.route('/v1/curriculum', curriculumDerivedRouter);
 app.route('/v1/validator', validatorRouter);
+app.route('/v1/speech', speechRouter);
 
 // Export default handler with cron support
 export default {
