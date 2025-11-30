@@ -181,6 +181,71 @@ const TOOLS = [
       },
     },
   },
+  // ═══════════════════════════════════════════════════════════
+  // SEMANTIC SEARCH TOOLS (Vectorize)
+  // ═══════════════════════════════════════════════════════════
+  {
+    type: 'function' as const,
+    function: {
+      name: 'semantic_search',
+      description: 'Search content by meaning/concept using AI. Use when user wants to find content by topic, theme, emotion, or meaning rather than exact text. Examples: "words about emotions", "vocabulary for food", "lessons covering travel", "happy words", "greetings".',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Natural language description of what to find (e.g., "words about emotions", "travel vocabulary")'
+          },
+          type: {
+            type: 'string',
+            enum: ['vocabulary', 'lesson', 'story'],
+            description: 'Type of content to search (optional, searches all if not specified)'
+          },
+          hskLevel: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 9,
+            description: 'Filter by HSK level (optional)'
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 20,
+            description: 'Max results (default 10)'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'find_similar',
+      description: 'Find content similar to a specific item. Use when user wants recommendations like "words similar to 高兴", "stories like X", "related vocabulary".',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['vocabulary', 'lesson', 'story'],
+            description: 'Type of content'
+          },
+          id: {
+            type: 'string',
+            description: 'ID of the item to find similar content for'
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 10,
+            description: 'Max similar items to return (default 5)'
+          }
+        },
+        required: ['type', 'id']
+      }
+    }
+  },
 ];
 
 // System prompt that constrains DeepSeek to ONLY plan tools
@@ -190,11 +255,15 @@ Your ONLY job is to decide which tools to call and with what arguments.
 
 RULES:
 1. For questions about specific row numbers ("row 156", "ID 475", "entry 23"), use lookup_vocabulary with that ID.
-2. For fuzzy text searches ("what's the word for thank you", "vocabulary about food"), use search_vocabulary.
+2. For exact text searches (specific hanzi/pinyin/English), use search_vocabulary.
 3. For questions about lessons ("lesson 1", "what's in lesson 3"), use get_lesson.
 4. For listing content ("show all lessons", "what stories do you have"), use list_lessons or list_stories.
 5. For statistics ("how many words", "curriculum overview"), use get_curriculum_stats.
 6. For HSK-specific questions ("HSK 1 content", "what's in HSK 2"), use get_hsk_overview.
+7. **For concept/meaning searches** ("words about emotions", "happy vocabulary", "greetings", "food words", "travel-related"), use semantic_search. This finds content by meaning, not exact text.
+8. **For similarity searches** ("words similar to 高兴", "vocabulary like this", "related words"), use find_similar.
+
+IMPORTANT: Prefer semantic_search over search_vocabulary when the user is asking about topics, themes, or concepts rather than specific text matches.
 
 If the user's question can be answered from general Chinese knowledge without database lookup (grammar explanations, translations, general advice), respond with exactly: NO_TOOLS_NEEDED
 
@@ -377,4 +446,6 @@ export function shouldUseOrchestrator(message: string): boolean {
   
   return dataIndicators.some(pattern => pattern.test(message));
 }
+
+
 

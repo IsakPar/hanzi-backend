@@ -1,9 +1,25 @@
+/**
+ * Content Routes Integration Tests
+ * 
+ * Tests content upload, publishing, favorites, and progress tracking.
+ * Uses Better Auth for authentication.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import {
+  createAuthenticatedAdmin,
+  createAuthenticatedUser,
+  authCookieHeaders,
+} from '../fixtures/better-auth-helpers';
 
 const baseUrl = 'http://localhost/v1/content';
 
-async function uploadDraftContent(ctx: TestContext, adminToken: string, metadataOverrides: Record<string, unknown> = {}) {
+async function uploadDraftContent(
+  ctx: TestContext,
+  sessionToken: string,
+  metadataOverrides: Record<string, unknown> = {}
+) {
   const form = new FormData();
   const payload = new TextEncoder().encode('integration-content');
   form.set('file', new File([payload], 'lesson.pdf', { type: 'application/pdf' }));
@@ -20,9 +36,7 @@ async function uploadDraftContent(ctx: TestContext, adminToken: string, metadata
   const res = await ctx.app.fetch(
     new Request(`${baseUrl}/admin/upload`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-      },
+      headers: authCookieHeaders(sessionToken),
       body: form,
     }),
     ctx.env,
@@ -34,12 +48,12 @@ async function uploadDraftContent(ctx: TestContext, adminToken: string, metadata
   return body.content as { id: string };
 }
 
-async function publishContent(ctx: TestContext, adminToken: string, contentId: string) {
+async function publishContent(ctx: TestContext, sessionToken: string, contentId: string) {
   const res = await ctx.app.fetch(
     new Request(`${baseUrl}/admin/library/${contentId}`, {
       method: 'PUT',
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        ...authCookieHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ is_published: true }),
@@ -62,9 +76,9 @@ describe.sequential('Content routes', () => {
   });
 
   it('allows admins to upload and publish content, exposing it publicly', async () => {
-    const adminToken = await ctx.signAdminToken();
-    const draft = await uploadDraftContent(ctx, adminToken);
-    await publishContent(ctx, adminToken, draft.id);
+    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    const draft = await uploadDraftContent(ctx, sessionToken);
+    await publishContent(ctx, sessionToken, draft.id);
 
     const publicRes = await ctx.app.fetch(new Request(`${baseUrl}/library`), ctx.env, executionContext);
     expect(publicRes.status).toBe(200);
@@ -83,7 +97,7 @@ describe.sequential('Content routes', () => {
   });
 
   it('rejects empty uploads with a 400 status', async () => {
-    const adminToken = await ctx.signAdminToken();
+    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
     const form = new FormData();
     form.set('file', new File([], 'empty.pdf', { type: 'application/pdf' }));
     form.set(
@@ -98,9 +112,7 @@ describe.sequential('Content routes', () => {
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/admin/upload`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-        },
+        headers: authCookieHeaders(sessionToken),
         body: form,
       }),
       ctx.env,
@@ -113,18 +125,16 @@ describe.sequential('Content routes', () => {
   });
 
   it('allows authenticated users to toggle favorites and updates counts', async () => {
-    const adminToken = await ctx.signAdminToken();
-    const content = await uploadDraftContent(ctx, adminToken, { title: 'Favorite Ready' });
-    await publishContent(ctx, adminToken, content.id);
+    const admin = await createAuthenticatedAdmin(ctx.db);
+    const content = await uploadDraftContent(ctx, admin.sessionToken, { title: 'Favorite Ready' });
+    await publishContent(ctx, admin.sessionToken, content.id);
 
-    const userToken = await ctx.signUserToken();
+    const { sessionToken: userToken, user } = await createAuthenticatedUser(ctx.db);
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/favorite/${content.id}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-        },
+        headers: authCookieHeaders(userToken),
       }),
       ctx.env,
       executionContext
@@ -142,17 +152,17 @@ describe.sequential('Content routes', () => {
   });
 
   it('records user progress updates via progress endpoint', async () => {
-    const adminToken = await ctx.signAdminToken();
-    const content = await uploadDraftContent(ctx, adminToken, { title: 'Progress Lesson' });
-    await publishContent(ctx, adminToken, content.id);
+    const admin = await createAuthenticatedAdmin(ctx.db);
+    const content = await uploadDraftContent(ctx, admin.sessionToken, { title: 'Progress Lesson' });
+    await publishContent(ctx, admin.sessionToken, content.id);
 
-    const userToken = await ctx.signUserToken();
+    const { sessionToken: userToken, user } = await createAuthenticatedUser(ctx.db);
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/progress/${content.id}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${userToken}`,
+          ...authCookieHeaders(userToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -170,11 +180,10 @@ describe.sequential('Content routes', () => {
 
     const progressRow = await ctx.db
       .prepare('SELECT progress_seconds, status FROM user_library WHERE user_id = ? AND content_id = ?')
-      .bind('standard-user', content.id)
+      .bind(user.id, content.id)
       .first<{ progress_seconds: number; status: string }>();
 
     expect(progressRow?.progress_seconds).toBe(45);
     expect(progressRow?.status).toBe('in_progress');
   });
 });
-

@@ -1,5 +1,17 @@
+/**
+ * Prompt Routes Integration Tests
+ * 
+ * Tests prompt template CRUD and promotion.
+ * Uses Better Auth for authentication.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import {
+  createAuthenticatedAdmin,
+  createAuthenticatedUser,
+  authCookieHeaders,
+} from '../fixtures/better-auth-helpers';
 
 const baseUrl = 'http://localhost/v1/ai/prompts';
 
@@ -15,12 +27,13 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('allows admins to create and promote prompt templates', async () => {
-    const adminToken = await ctx.signAdminToken();
+    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    
     const createRes = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminToken}`,
+          ...authCookieHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -38,7 +51,7 @@ describe.sequential('Prompt routes', () => {
       new Request(`${baseUrl}/integration_lesson/promote`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminToken}`,
+          ...authCookieHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -54,9 +67,7 @@ describe.sequential('Prompt routes', () => {
 
     const versionsRes = await ctx.app.fetch(
       new Request(`${baseUrl}/integration_lesson/versions`, {
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-        },
+        headers: authCookieHeaders(sessionToken),
       }),
       ctx.env,
       executionContext
@@ -70,12 +81,13 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('rejects non-admin users for prompt mutations', async () => {
-    const userToken = await ctx.signUserToken();
+    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${userToken}`,
+          ...authCookieHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -91,14 +103,14 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('records analytics events on draft creation', async () => {
-    const adminToken = await ctx.signAdminToken();
+    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
     const slug = 'analytics_check';
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminToken}`,
+          ...authCookieHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -123,4 +135,3 @@ describe.sequential('Prompt routes', () => {
     expect(metadata.version).toBe(1);
   });
 });
-

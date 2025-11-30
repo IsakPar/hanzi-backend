@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import type { AppEnv } from '../types/app';
 import { LessonCacheService } from '../services/lesson-cache';
 import { LessonGenerator } from '../services/lesson-generator';
@@ -25,7 +25,7 @@ import {
 const app = new Hono<AppEnv>();
 
 // Auth required - admin only
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin', 'user'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
 // Helper to get cache service
 const getCacheService = (env: AppEnv['Bindings'], requestId: string) => {

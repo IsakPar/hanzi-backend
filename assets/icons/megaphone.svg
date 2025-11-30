@@ -1,0 +1,28 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="megaphoneGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+    <linearGradient id="coneGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+  </defs>
+  <!-- Main cone -->
+  <path d="M12 24L48 12V52L12 40V24Z" fill="url(#coneGrad)"/>
+  <!-- Handle -->
+  <rect x="8" y="22" width="6" height="20" rx="2" fill="url(#megaphoneGrad)"/>
+  <!-- Bell end -->
+  <ellipse cx="48" cy="32" rx="4" ry="20" fill="#4338CA"/>
+  <ellipse cx="49" cy="32" rx="2" ry="16" fill="#312E81"/>
+  <!-- Sound waves -->
+  <path d="M54 24C58 28 58 36 54 40" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round"/>
+  <path d="M58 18C64 26 64 38 58 46" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <!-- Shine -->
+  <path d="M14 26L40 16" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.3"/>
+  <!-- Decorative dots -->
+  <circle cx="18" cy="48" r="2" fill="#818CF8"/>
+  <circle cx="24" cy="52" r="1.5" fill="#A5B4FC"/>
+</svg>
+

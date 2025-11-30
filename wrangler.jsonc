@@ -21,15 +21,28 @@
       "preview_bucket_name": "hanzimaster-content-dev"
     }
   ],
+  // Vectorize for semantic search
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "hanzimaster-vectors"
+    }
+  ],
+  // Workers AI for embeddings
+  "ai": {
+    "binding": "AI"
+  },
   // Environment Variables (non-secret)
   "vars": {
     "ENVIRONMENT": "development",
     "MAX_REQUESTS_PER_DAY": "10",
     "MAX_TOKENS_PER_DAY": "5000",
-    "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000,https://polymasterlabs.com,https://www.polymasterlabs.com,https://studio.polymasterlabs.com,https://portal.polymasterlabs.com,https://admin.polymasterlabs.com,https://app.polymasterlabs.com",
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000,https://polymasterlabs.com,https://www.polymasterlabs.com,https://studio.polymasterlabs.com,https://api.studio.polymasterlabs.com,https://portal.polymasterlabs.com,https://admin.polymasterlabs.com,https://app.polymasterlabs.com,https://hanzimaster-studio.pages.dev",
     "DEFAULT_AI_MODEL": "gpt-5-nano",
     "JWT_MAX_AGE": "7d",
-    "VALIDATOR_URL": "https://hanzi-vocab-val-u53gq.sevalla.app"
+    "VALIDATOR_URL": "https://hanzi-vocab-val-u53gq.sevalla.app",
+    "BETTER_AUTH_URL": "https://api.studio.polymasterlabs.com",
+    "PORTAL_URL": "https://studio.polymasterlabs.com"
   },
   // Scheduled cron jobs
   "triggers": {

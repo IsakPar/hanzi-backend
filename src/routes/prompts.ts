@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { createPromptsDomain } from '../domains/prompts';
 import type { AppEnv } from '../types/app';
 import { AnalyticsService } from '../services/analytics';
 
 const app = new Hono<AppEnv>();
 
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 const getServices = (env: AppEnv['Bindings']) => createPromptsDomain(env);
 

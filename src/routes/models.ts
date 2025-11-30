@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { ModelManagerService } from '../services/model-manager';
 import type { AppEnv } from '../types/app';
 
 const app = new Hono<AppEnv>();
 
 // Protect all routes
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // === MODEL MANAGEMENT ===
 

@@ -1,9 +1,22 @@
+/**
+ * Analytics Routes Integration Tests
+ * 
+ * Tests analytics endpoints for AI usage and system events.
+ * Uses Better Auth for authentication.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import {
+  createAuthenticatedAdmin,
+  createAuthenticatedUser,
+  authCookieHeaders,
+  type BetterAuthTestUser,
+} from '../fixtures/better-auth-helpers';
 
 const baseUrl = 'http://localhost';
 
-async function seedAnalyticsData(ctx: TestContext) {
+async function seedAnalyticsData(ctx: TestContext, userId: string) {
   await ctx.db
     .prepare(
       `INSERT INTO system_events (id, event_type, request_id, user_id, model_used, prompt_slug, prompt_version, latency_ms, cost_usd, metadata)
@@ -13,7 +26,7 @@ async function seedAnalyticsData(ctx: TestContext) {
       crypto.randomUUID(),
       'ai.generate.success',
       'req-1',
-      'admin-user',
+      userId,
       'gpt-test',
       'lesson_default',
       1,
@@ -30,7 +43,7 @@ async function seedAnalyticsData(ctx: TestContext) {
   await stmt
     .bind(
       crypto.randomUUID(),
-      'admin-user',
+      userId,
       'req-1',
       'gpt-test',
       100,
@@ -46,7 +59,7 @@ async function seedAnalyticsData(ctx: TestContext) {
   await stmt
     .bind(
       crypto.randomUUID(),
-      'admin-user',
+      userId,
       'req-2',
       'gpt-test',
       200,
@@ -63,10 +76,15 @@ async function seedAnalyticsData(ctx: TestContext) {
 
 describe.sequential('Analytics routes', () => {
   let ctx: TestContext;
+  let adminUser: BetterAuthTestUser;
+  let adminToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
-    await seedAnalyticsData(ctx);
+    const admin = await createAuthenticatedAdmin(ctx.db);
+    adminUser = admin.user;
+    adminToken = admin.sessionToken;
+    await seedAnalyticsData(ctx, adminUser.id);
   });
 
   afterEach(async () => {
@@ -74,10 +92,9 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('returns filtered AI analytics for admin', async () => {
-    const adminToken = await ctx.signAdminToken();
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/ai?prompt_slug=lesson_default&success=true`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: authCookieHeaders(adminToken),
       }),
       ctx.env,
       executionContext
@@ -90,10 +107,11 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('rejects non-admin access', async () => {
-    const userToken = await ctx.signUserToken();
+    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/ai`, {
-        headers: { Authorization: `Bearer ${userToken}` },
+        headers: authCookieHeaders(sessionToken),
       }),
       ctx.env,
       executionContext
@@ -103,12 +121,12 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('returns system events within date range', async () => {
-    const adminToken = await ctx.signAdminToken();
     const from = new Date(Date.now() - 1000).toISOString();
     const to = new Date(Date.now() + 1000).toISOString();
+    
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/system?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: authCookieHeaders(adminToken),
       }),
       ctx.env,
       executionContext
@@ -121,10 +139,11 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('rejects non-admin access to system analytics', async () => {
-    const userToken = await ctx.signUserToken();
+    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/system`, {
-        headers: { Authorization: `Bearer ${userToken}` },
+        headers: authCookieHeaders(sessionToken),
       }),
       ctx.env,
       executionContext
@@ -133,4 +152,3 @@ describe.sequential('Analytics routes', () => {
     expect(res.status).toBe(403);
   });
 });
-

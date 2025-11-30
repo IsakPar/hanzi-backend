@@ -114,7 +114,11 @@ export const lessons = sqliteTable('lessons', {
   
   // Publishing
   isPublished: integer('is_published', { mode: 'boolean' }).default(false),
-  version: integer('version').default(1),
+  contentStatus: text('content_status', { enum: ['draft', 'staging', 'live'] }).default('draft'),
+  
+  // Content Versioning
+  contentVersion: integer('content_version').notNull().default(1),
+  contentHash: text('content_hash'), // SHA256 of blocks JSON for change detection
   
   // Timestamps
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
@@ -124,6 +128,7 @@ export const lessons = sqliteTable('lessons', {
   orderingIdx: index('lessons_ordering_idx').on(table.hskLevel, table.lessonType, table.lessonNumber),
   typeIdx: index('lessons_type_idx').on(table.lessonType),
   displayOrderIdx: index('lessons_display_order_idx').on(table.hskLevel, table.displayOrder),
+  contentStatusIdx: index('lessons_content_status_idx').on(table.contentStatus),
 }));
 
 // --- LESSON BLOCKS ---
@@ -137,6 +142,57 @@ export const lessonBlocks = sqliteTable('lesson_blocks', {
   lessonIdx: index('lesson_blocks_lesson_idx').on(table.lessonId),
 }));
 
+// --- LESSON BLOCK SLOTS ---
+// Defines word positions in a sentence with focus word marking
+export const lessonBlockSlots = sqliteTable('lesson_block_slots', {
+  id: text('id').primaryKey(),
+  blockId: text('block_id').notNull().references(() => lessonBlocks.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(),
+  wordId: text('word_id').notNull().references(() => vocabulary.id),
+  hanzi: text('hanzi').notNull(),
+  isFocus: integer('is_focus', { mode: 'boolean' }).default(false),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+}, (table) => ({
+  blockIdx: index('lesson_block_slots_block_idx').on(table.blockId),
+  wordIdx: index('lesson_block_slots_word_idx').on(table.wordId),
+}));
+
+// --- SLOT ALTERNATIVES ---
+// Approved alternative words for non-focus slots
+export const slotAlternatives = sqliteTable('slot_alternatives', {
+  id: text('id').primaryKey(),
+  slotId: text('slot_id').notNull().references(() => lessonBlockSlots.id, { onDelete: 'cascade' }),
+  wordId: text('word_id').notNull().references(() => vocabulary.id),
+  hanzi: text('hanzi').notNull(),
+  isApproved: integer('is_approved', { mode: 'boolean' }).default(false),
+  approvedBy: text('approved_by'),
+  approvedAt: text('approved_at'),
+  aiSuggested: integer('ai_suggested', { mode: 'boolean' }).default(true),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+}, (table) => ({
+  slotIdx: index('slot_alternatives_slot_idx').on(table.slotId),
+  approvedIdx: index('slot_alternatives_approved_idx').on(table.isApproved),
+}));
+
+// --- BLOCK CONNECTED WORDS ---
+// Related vocabulary for vocab track expansion
+export const blockConnectedWords = sqliteTable('block_connected_words', {
+  id: text('id').primaryKey(),
+  blockId: text('block_id').notNull().references(() => lessonBlocks.id, { onDelete: 'cascade' }),
+  wordId: text('word_id').notNull().references(() => vocabulary.id),
+  hanzi: text('hanzi').notNull(),
+  inferredCategory: text('inferred_category'),
+  isApproved: integer('is_approved', { mode: 'boolean' }).default(false),
+  approvedBy: text('approved_by'),
+  approvedAt: text('approved_at'),
+  aiSuggested: integer('ai_suggested', { mode: 'boolean' }).default(true),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+}, (table) => ({
+  blockIdx: index('block_connected_words_block_idx').on(table.blockId),
+  approvedIdx: index('block_connected_words_approved_idx').on(table.isApproved),
+}));
+
 // --- USER PROGRESS ---
 export const userProgress = sqliteTable('user_progress', {
   id: text('id').primaryKey(),
@@ -146,8 +202,13 @@ export const userProgress = sqliteTable('user_progress', {
   score: integer('score').default(0),
   completedAt: integer('completed_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  
+  // Content Versioning
+  completedVersion: integer('completed_version'), // Version of lesson content when user completed
+  needsReview: integer('needs_review', { mode: 'boolean' }).default(false), // Flag if content changed significantly
 }, (table) => ({
   userLessonIdx: index('user_progress_user_lesson_idx').on(table.userId, table.lessonId),
+  needsReviewIdx: index('user_progress_needs_review_idx').on(table.needsReview),
 }));
 
 // --- USER KNOWLEDGE SNAPSHOT ---
@@ -173,8 +234,19 @@ export const tierLimits = sqliteTable('tier_limits', {
   contentDownloadsPerDay: integer('content_downloads_per_day').notNull().default(5),
   offlinePackagesAllowed: integer('offline_packages_allowed').notNull().default(0),
   canAccessPremiumContent: integer('can_access_premium_content', { mode: 'boolean' }).notNull().default(false),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
 });
+
+// --- TEST DEVICES (Control Center) ---
+export const testDevices = sqliteTable('test_devices', {
+  id: text('id').primaryKey(),
+  deviceId: text('device_id').unique().notNull(),
+  name: text('name').notNull(),
+  platform: text('platform', { enum: ['ios', 'android'] }),
+  addedBy: text('added_by'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  deviceIdIdx: index('test_devices_device_id_idx').on(table.deviceId),
+}));
 
 // --- RATE LIMITS ---
 export const dailyUsage = sqliteTable('daily_usage', {
@@ -430,6 +502,24 @@ export const promptTemplateHistory = sqliteTable('prompt_template_history', {
   slugIdx: index('prompt_template_history_slug_idx').on(table.slug, table.createdAt),
 }));
 
+// --- STORY SERIES ---
+export const storySeries = sqliteTable('story_series', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  description: text('description'),
+  color: text('color').default('#4F46E5'),
+  icon: text('icon').default('book-open'),
+  coverImageR2Key: text('cover_image_r2_key'),
+  hskLevel: integer('hsk_level'),
+  orderIndex: integer('order_index').default(0),
+  isPublished: integer('is_published', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  orderIdx: index('story_series_order_idx').on(table.orderIndex),
+  publishedIdx: index('story_series_published_idx').on(table.isPublished),
+}));
+
 // --- STORIES ---
 export const stories = sqliteTable('stories', {
   id: text('id').primaryKey(),
@@ -440,6 +530,10 @@ export const stories = sqliteTable('stories', {
   // Link to full audiobook/text file in content_library
   contentLibraryId: text('content_library_id').references(() => contentLibrary.id, { onDelete: 'set null' }),
   
+  // Series relationship
+  seriesId: text('series_id').references(() => storySeries.id, { onDelete: 'set null' }),
+  seriesOrder: integer('series_order').default(0),
+  
   description: text('description'),
   topic: text('topic'),
   
@@ -449,7 +543,7 @@ export const stories = sqliteTable('stories', {
   estimatedMinutes: integer('estimated_minutes'),
   
   // Access control
-  accessTier: text('access_tier', { enum: ['free', 'premium'] }).default('premium'),
+  accessTier: text('access_tier', { enum: ['free', 'premium'] }).default('free'),
   
   // Cover image
   coverImageR2Key: text('cover_image_r2_key'),
@@ -459,15 +553,24 @@ export const stories = sqliteTable('stories', {
   
   // Publishing
   isPublished: integer('is_published', { mode: 'boolean' }).default(false),
+  contentStatus: text('content_status', { enum: ['draft', 'staging', 'live'] }).default('draft'),
+  isFeatured: integer('is_featured', { mode: 'boolean' }).default(false),
   publishedAt: integer('published_at', { mode: 'timestamp' }),
+  
+  // Content Versioning
+  contentVersion: integer('content_version').notNull().default(1),
+  contentHash: text('content_hash'), // SHA256 of sentences JSON for change detection
   
   // Timestamps
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
 }, (table) => ({
   hskIdx: index('story_hsk_idx').on(table.hskLevel),
+  contentStatusIdx: index('story_content_status_idx').on(table.contentStatus),
   publishedIdx: index('story_published_idx').on(table.isPublished),
   difficultyIdx: index('story_difficulty_idx').on(table.difficulty),
+  seriesIdx: index('story_series_id_idx').on(table.seriesId, table.seriesOrder),
+  featuredIdx: index('story_featured_idx').on(table.isFeatured),
 }));
 
 // --- STORY SENTENCES ---
@@ -578,7 +681,7 @@ export const analyticsRetentionCohorts = sqliteTable('analytics_retention_cohort
 // --- TIER DAILY STATS ---
 export const analyticsTierDaily = sqliteTable('analytics_tier_daily', {
   date: text('date').notNull(),
-  tier: text('tier', { enum: ['free', 'premium', 'pro'] }).notNull(),
+  tier: text('tier', { enum: ['free', 'master', 'pro'] }).notNull(),
   userCount: integer('user_count').notNull().default(0),
 }, (table) => ({
   pk: primaryKey({ columns: [table.date, table.tier] }),
@@ -767,10 +870,10 @@ export const baUser = sqliteTable('ba_user', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   email: text('email').unique().notNull(),
-  emailVerified: integer('emailVerified', { mode: 'boolean' }).default(false),
+  emailVerified: integer('email_verified', { mode: 'boolean' }).default(false),
   image: text('image'),
-  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
   // Custom fields
   role: text('role', { enum: ['user', 'admin'] }).default('user'),
   tier: text('tier', { enum: ['free', 'premium', 'pro'] }).default('free'),
@@ -785,35 +888,35 @@ export const baUser = sqliteTable('ba_user', {
 // --- BA SESSION ---
 export const baSession = sqliteTable('ba_session', {
   id: text('id').primaryKey(),
-  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
   token: text('token').unique().notNull(),
-  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  ipAddress: text('ipAddress'),
-  userAgent: text('userAgent'),
-  userId: text('userId').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  userId: text('user_id').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
 }, (table) => ({
-  userIdIdx: index('ba_session_userId_idx').on(table.userId),
+  userIdIdx: index('ba_session_user_id_idx').on(table.userId),
   tokenIdx: index('ba_session_token_idx').on(table.token),
 }));
 
 // --- BA ACCOUNT ---
 export const baAccount = sqliteTable('ba_account', {
   id: text('id').primaryKey(),
-  accountId: text('accountId').notNull(),
-  providerId: text('providerId').notNull(),
-  userId: text('userId').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
-  accessToken: text('accessToken'),
-  refreshToken: text('refreshToken'),
-  idToken: text('idToken'),
-  accessTokenExpiresAt: integer('accessTokenExpiresAt', { mode: 'timestamp' }),
-  refreshTokenExpiresAt: integer('refreshTokenExpiresAt', { mode: 'timestamp' }),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  userId: text('user_id').notNull().references(() => baUser.id, { onDelete: 'cascade' }),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp' }),
+  refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp' }),
   scope: text('scope'),
   password: text('password'),
-  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 }, (table) => ({
-  userIdIdx: index('ba_account_userId_idx').on(table.userId),
+  userIdIdx: index('ba_account_user_id_idx').on(table.userId),
 }));
 
 // --- BA VERIFICATION ---
@@ -821,10 +924,312 @@ export const baVerification = sqliteTable('ba_verification', {
   id: text('id').primaryKey(),
   identifier: text('identifier').notNull(),
   value: text('value').notNull(),
-  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
-  createdAt: integer('createdAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updatedAt', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 }, (table) => ({
   identifierIdx: index('ba_verification_identifier_idx').on(table.identifier),
+}));
+
+// --- STORY CATEGORIES (Display sections on mobile home) ---
+export const storyCategories = sqliteTable('story_categories', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  displayType: text('display_type', { enum: ['horizontal', 'grid', 'featured', 'series'] }).default('horizontal'),
+  filterType: text('filter_type', { enum: ['recent', 'popular', 'manual', 'hsk', 'series'] }).default('manual'),
+  filterValue: text('filter_value', { mode: 'json' }), // JSON config for filter
+  orderIndex: integer('order_index').default(0),
+  isPublished: integer('is_published', { mode: 'boolean' }).default(true),
+  seeAllEnabled: integer('see_all_enabled', { mode: 'boolean' }).default(true),
+  maxItems: integer('max_items').default(10),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  orderIdx: index('story_categories_order_idx').on(table.orderIndex),
+  publishedIdx: index('story_categories_published_idx').on(table.isPublished),
+}));
+
+// --- STORY CATEGORY ITEMS (Manual assignments) ---
+export const storyCategoryItems = sqliteTable('story_category_items', {
+  categoryId: text('category_id').notNull().references(() => storyCategories.id, { onDelete: 'cascade' }),
+  storyId: text('story_id').notNull().references(() => stories.id, { onDelete: 'cascade' }),
+  orderIndex: integer('order_index').default(0),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.categoryId, table.storyId] }),
+  categoryIdx: index('story_category_items_category_idx').on(table.categoryId),
+  storyIdx: index('story_category_items_story_idx').on(table.storyId),
+}));
+
+// --- AI ASSISTANT SETTINGS ---
+export const aiAssistantSettings = sqliteTable('ai_assistant_settings', {
+  id: text('id').primaryKey().default('default'),
+  tuningPrompt: text('tuning_prompt'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedBy: text('updated_by'),
+});
+
+// --- AI SYSTEM FILES ---
+export const aiSystemFiles = sqliteTable('ai_system_files', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  content: text('content').notNull(),
+  fileType: text('file_type', { enum: ['text', 'markdown', 'json'] }).default('text'),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  orderIndex: integer('order_index').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  createdBy: text('created_by'),
+}, (table) => ({
+  activeIdx: index('ai_system_files_active_idx').on(table.isActive),
+}));
+
+// --- AI USAGE LOG ---
+export const aiUsageLog = sqliteTable('ai_usage_log', {
+  id: text('id').primaryKey(),
+  userId: text('user_id'),
+  sessionId: text('session_id'),
+  model: text('model').notNull(),
+  endpoint: text('endpoint'),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  totalTokens: integer('total_tokens').notNull().default(0),
+  costUsd: real('cost_usd').notNull().default(0),
+  latencyMs: integer('latency_ms'),
+  success: integer('success', { mode: 'boolean' }).default(true),
+  errorMessage: text('error_message'),
+  metadata: text('metadata', { mode: 'json' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  userIdx: index('ai_usage_user_idx').on(table.userId),
+  modelIdx: index('ai_usage_model_idx').on(table.model),
+  createdIdx: index('ai_usage_created_idx').on(table.createdAt),
+}));
+
+// --- ANNOUNCEMENTS (SDUI) ---
+export const announcements = sqliteTable('announcements', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  uiSchema: text('ui_schema', { mode: 'json' }).notNull(),
+  targetAudience: text('target_audience', { enum: ['all', 'free', 'premium', 'test_devices'] }).default('all'),
+  minAppVersion: text('min_app_version'),
+  maxAppVersion: text('max_app_version'),
+  startsAt: integer('starts_at', { mode: 'timestamp' }),
+  endsAt: integer('ends_at', { mode: 'timestamp' }),
+  showOnce: integer('show_once', { mode: 'boolean' }).default(true),
+  isDismissible: integer('is_dismissible', { mode: 'boolean' }).default(true),
+  priority: integer('priority').default(0),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  createdBy: text('created_by'),
+}, (table) => ({
+  activeIdx: index('announcements_active_idx').on(table.isActive),
+  priorityIdx: index('announcements_priority_idx').on(table.priority),
+}));
+
+// --- ANNOUNCEMENT DISMISSALS ---
+export const announcementDismissals = sqliteTable('announcement_dismissals', {
+  id: text('id').primaryKey(),
+  announcementId: text('announcement_id').notNull().references(() => announcements.id, { onDelete: 'cascade' }),
+  userId: text('user_id'),
+  deviceId: text('device_id'),
+  dismissedAt: integer('dismissed_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  announcementIdx: index('dismissals_announcement_idx').on(table.announcementId),
+  userIdx: index('dismissals_user_idx').on(table.userId),
+}));
+
+// --- ANNOUNCEMENT TEMPLATES ---
+export const announcementTemplates = sqliteTable('announcement_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  icon: text('icon').notNull().default('📢'),
+  description: text('description'),
+  fields: text('fields', { mode: 'json' }).notNull().default('[]'),
+  defaultSchema: text('default_schema', { mode: 'json' }).notNull(),
+  orderIndex: integer('order_index').default(0),
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  orderIdx: index('announcement_templates_order_idx').on(table.orderIndex),
+}));
+
+// ═══════════════════════════════════════════════════════════
+// ENHANCED ANALYTICS TABLES
+// ═══════════════════════════════════════════════════════════
+
+// --- AI TUTOR SESSIONS ---
+export const aiTutorSessions = sqliteTable('ai_tutor_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  sessionStartedAt: integer('session_started_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  sessionEndedAt: integer('session_ended_at', { mode: 'timestamp' }),
+  messageCount: integer('message_count').default(0),
+  userMessageCount: integer('user_message_count').default(0),
+  aiMessageCount: integer('ai_message_count').default(0),
+  topicsDiscussed: text('topics_discussed', { mode: 'json' }),
+  vocabularyUsed: text('vocabulary_used', { mode: 'json' }),
+  grammarPointsCovered: text('grammar_points_covered', { mode: 'json' }),
+  correctionsMade: integer('corrections_made').default(0),
+  userRating: integer('user_rating'),
+  totalTokensUsed: integer('total_tokens_used').default(0),
+  estimatedCostUsd: real('estimated_cost_usd').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  userIdx: index('ai_tutor_sessions_user_idx').on(table.userId),
+  dateIdx: index('ai_tutor_sessions_date_idx').on(table.sessionStartedAt),
+}));
+
+// --- AI TUTOR MESSAGES ---
+export const aiTutorMessages = sqliteTable('ai_tutor_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => aiTutorSessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  contentLength: integer('content_length'),
+  wordCount: integer('word_count'),
+  vocabularyIds: text('vocabulary_ids', { mode: 'json' }),
+  grammarPoints: text('grammar_points', { mode: 'json' }),
+  isCorrection: integer('is_correction', { mode: 'boolean' }).default(false),
+  responseTimeMs: integer('response_time_ms'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  sessionIdx: index('ai_tutor_messages_session_idx').on(table.sessionId),
+}));
+
+// --- EXERCISE ATTEMPTS ---
+export const exerciseAttempts = sqliteTable('exercise_attempts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  lessonId: text('lesson_id'),
+  storyId: text('story_id'),
+  blockId: text('block_id').notNull(),
+  exerciseType: text('exercise_type').notNull(),
+  isCorrect: integer('is_correct', { mode: 'boolean' }).notNull(),
+  attemptNumber: integer('attempt_number').default(1),
+  timeSpentMs: integer('time_spent_ms'),
+  hintsUsed: integer('hints_used').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  userIdx: index('exercise_attempts_user_idx').on(table.userId),
+  lessonIdx: index('exercise_attempts_lesson_idx').on(table.lessonId),
+  typeIdx: index('exercise_attempts_type_idx').on(table.exerciseType),
+  dateIdx: index('exercise_attempts_date_idx').on(table.createdAt),
+}));
+
+// --- EXERCISE STATS DAILY (Aggregated) ---
+export const exerciseStatsDaily = sqliteTable('exercise_stats_daily', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(),
+  exerciseType: text('exercise_type').notNull(),
+  lessonId: text('lesson_id'),
+  totalAttempts: integer('total_attempts').default(0),
+  correctAttempts: integer('correct_attempts').default(0),
+  successRate: real('success_rate').default(0),
+  avgTimeMs: integer('avg_time_ms').default(0),
+  uniqueUsers: integer('unique_users').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  dateIdx: index('exercise_stats_daily_date_idx').on(table.date),
+}));
+
+// --- DAILY METRICS (Executive Dashboard) ---
+export const dailyMetrics = sqliteTable('daily_metrics', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull().unique(),
+  
+  // User metrics
+  totalUsers: integer('total_users').default(0),
+  newUsers: integer('new_users').default(0),
+  activeUsers: integer('active_users').default(0),
+  returningUsers: integer('returning_users').default(0),
+  
+  // Retention
+  day1RetentionPct: real('day1_retention_pct').default(0),
+  day7RetentionPct: real('day7_retention_pct').default(0),
+  day30RetentionPct: real('day30_retention_pct').default(0),
+  
+  // Learning metrics
+  lessonsStarted: integer('lessons_started').default(0),
+  lessonsCompleted: integer('lessons_completed').default(0),
+  lessonCompletionRate: real('lesson_completion_rate').default(0),
+  storiesStarted: integer('stories_started').default(0),
+  storiesCompleted: integer('stories_completed').default(0),
+  storyCompletionRate: real('story_completion_rate').default(0),
+  
+  // Vocabulary
+  wordsLearned: integer('words_learned').default(0),
+  wordsReviewed: integer('words_reviewed').default(0),
+  vocabAccuracyRate: real('vocab_accuracy_rate').default(0),
+  
+  // AI Tutor
+  aiSessions: integer('ai_sessions').default(0),
+  aiMessages: integer('ai_messages').default(0),
+  aiCostUsd: real('ai_cost_usd').default(0),
+  
+  // Revenue
+  newSubscriptions: integer('new_subscriptions').default(0),
+  churnedSubscriptions: integer('churned_subscriptions').default(0),
+  mrrUsd: real('mrr_usd').default(0),
+  
+  // Exercise
+  totalExercises: integer('total_exercises').default(0),
+  correctExercises: integer('correct_exercises').default(0),
+  exerciseSuccessRate: real('exercise_success_rate').default(0),
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  dateIdx: index('daily_metrics_date_idx').on(table.date),
+}));
+
+// --- USER ACTIVITY LOG ---
+export const userActivityLog = sqliteTable('user_activity_log', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  activityDate: text('activity_date').notNull(),
+  activityType: text('activity_type').notNull(),
+  activityCount: integer('activity_count').default(1),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  userIdx: index('user_activity_log_user_idx').on(table.userId),
+  dateIdx: index('user_activity_log_date_idx').on(table.activityDate),
+}));
+
+// --- STORY READING EVENTS ---
+export const storyReadingEvents = sqliteTable('story_reading_events', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  storyId: text('story_id').notNull(),
+  sentencesRead: integer('sentences_read').default(0),
+  totalSentences: integer('total_sentences'),
+  readCompletionPct: real('read_completion_pct').default(0),
+  wordsTapped: integer('words_tapped').default(0),
+  audioPlays: integer('audio_plays').default(0),
+  timeSpentSeconds: integer('time_spent_seconds').default(0),
+  scrollDepthPct: real('scroll_depth_pct').default(0),
+  finished: integer('finished', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  userIdx: index('story_reading_events_user_idx').on(table.userId),
+  storyIdx: index('story_reading_events_story_idx').on(table.storyId),
+  dateIdx: index('story_reading_events_date_idx').on(table.createdAt),
+}));
+
+// --- STORY SENTENCE STATS ---
+export const storySentenceStats = sqliteTable('story_sentence_stats', {
+  id: text('id').primaryKey(),
+  storyId: text('story_id').notNull(),
+  sentenceIndex: integer('sentence_index').notNull(),
+  timesDisplayed: integer('times_displayed').default(0),
+  timesAudioPlayed: integer('times_audio_played').default(0),
+  wordsTapped: integer('words_tapped').default(0),
+  avgTimeOnSentenceMs: integer('avg_time_on_sentence_ms').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  storyIdx: index('story_sentence_stats_story_idx').on(table.storyId),
 }));
 

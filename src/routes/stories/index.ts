@@ -17,7 +17,7 @@
  */
 
 import { Hono } from 'hono';
-import { betterAuthMiddleware } from '../../middleware/better-auth';
+import { jwtAuthMiddleware } from '../../middleware/jwt-auth';
 import type { AppEnv } from '../../types/app';
 
 // Sub-routers
@@ -31,7 +31,7 @@ import storiesAI from './stories-ai';
 const app = new Hono<AppEnv>();
 
 // All stories endpoints require admin auth
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin', 'user'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
 // Mount sub-routers
 // Order matters: more specific routes first

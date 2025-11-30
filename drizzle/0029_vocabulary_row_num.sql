@@ -7,3 +7,6 @@ ALTER TABLE vocabulary ADD COLUMN row_num INTEGER;
 -- Step 2: Create unique index for lookups
 CREATE UNIQUE INDEX IF NOT EXISTS vocab_row_num_idx ON vocabulary(row_num);
 
+
+
+

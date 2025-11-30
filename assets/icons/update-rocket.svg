@@ -1,0 +1,18 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="rocketGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="flameGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#EF4444"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 8C32 8 18 18 18 36C18 42 20 47 24 51L28 47C28 47 26 42 26 36C26 24 32 16 32 16C32 16 38 24 38 36C38 42 36 47 36 47L40 51C44 47 46 42 46 36C46 18 32 8 32 8Z" fill="url(#rocketGrad)"/>
+  <circle cx="32" cy="32" r="4" fill="white"/>
+  <path d="M24 51L20 56L28 54L24 51Z" fill="url(#rocketGrad)" opacity="0.7"/>
+  <path d="M40 51L44 56L36 54L40 51Z" fill="url(#rocketGrad)" opacity="0.7"/>
+  <path d="M28 52C28 52 30 58 32 58C34 58 36 52 36 52L34 50C34 50 33 54 32 54C31 54 30 50 30 50L28 52Z" fill="url(#flameGrad)"/>
+</svg>
+

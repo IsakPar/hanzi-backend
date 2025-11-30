@@ -29,7 +29,10 @@ type SubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled' | 'expired
 type SubscriptionPlatform = 'ios' | 'android' | 'web';
 
 // Product ID to tier mapping - configured here for easy maintenance
+// Premium tier = $9.99/month (displayed as "Master" in UI)
 const PRODUCT_TIER_MAP: Record<string, UserTier> = {
+  'hanzi_master_monthly': 'premium',  // RevenueCat product -> DB tier
+  'hanzi_master_yearly': 'premium',
   'hanzi_premium_monthly': 'premium',
   'hanzi_premium_yearly': 'premium',
   'hanzi_pro_monthly': 'pro',

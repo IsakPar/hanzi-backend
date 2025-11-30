@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import lessonsRouter from './routes/lessons';
 import adminRouter from './routes/admin';
 import aiRouter from './routes/ai';
+import aiAssistantRouter from './routes/ai-assistant';
 import modelsRouter from './routes/models';
 import contentRouter from './routes/content';
 import promptsRouter from './routes/prompts';
@@ -11,13 +12,22 @@ import analyticsRouter, { publicAnalyticsRoutes } from './routes/analytics';
 import billingRouter from './routes/billing';
 import usersRouter from './routes/users';
 import storiesRouter from './routes/stories';
+import storySeriesRouter from './routes/story-series';
+import storyCategoriesRouter from './routes/story-categories';
 import vocabularyRouter from './routes/vocabulary';
 import unitsRouter from './routes/units';
 import waitlistRouter from './routes/waitlist';
 import curriculumDerivedRouter from './routes/curriculum-derived';
 import validatorRouter from './routes/validator';
 import speechRouter from './routes/speech';
+import lessonCacheRouter from './routes/lesson-cache';
+import audioRouter from './routes/audio';
 import authRouter from './routes/auth';
+import tokenAuthRouter from './routes/token-auth';
+import controlCenterRouter from './routes/control-center';
+import announcementsRouter from './routes/announcements';
+import lessonAlternativesRouter from './routes/lesson-alternatives';
+import { aiTutorRouter } from './routes/ai-tutor';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -30,47 +40,46 @@ const app = new Hono<AppEnv>();
 // Request context (requestId, logging)
 app.use('*', requestContextMiddleware);
 
-// Global Middleware - CORS with strict whitelist (skip for webhooks)
-// 
-// Security Model:
-// 1. Webhooks (/webhooks/*): No CORS checks (external services don't send Origin)
-// 2. No Origin header: Allow (same-origin requests or server-to-server)
-// 3. Unknown Origin: Reject with 403 (prevents CSRF/XSS attacks)
-// 4. Allowed Origin: Accept with credentials
-//
-// To add origins: Update ALLOWED_ORIGINS env var (comma-separated list)
-app.use('/*', async (c, next) => {
-  const path = c.req.path;
-  
-  // Skip CORS for webhook endpoints (they don't send Origin headers)
-  if (path.includes('/webhooks/')) {
-    return next();
-  }
-  
-  const config = c.get('config');
-  const origin = c.req.header('Origin');
-  const allowedOrigins = config.allowedOrigins;
+// Hardcoded allowed origins - more reliable than env parsing
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:3000',
+  'https://studio.polymasterlabs.com',
+  'https://api.studio.polymasterlabs.com',
+  'https://polymasterlabs.com',
+  'https://www.polymasterlabs.com',
+  'https://hanzimaster-studio.pages.dev',
+  'https://hanzimaster-portal.pages.dev',
+  'https://main.hanzimaster-portal.pages.dev',
+  'https://main.hanzimaster-studio.pages.dev',
+];
 
-  // Strict CORS: Reject requests with unknown origins
-  if (!origin) {
-    // No origin header - likely same-origin request or non-browser client (curl, Postman)
-    // This is safe because browsers ALWAYS send Origin for cross-origin requests
-    return next();
-  }
-
-  if (!allowedOrigins.includes(origin)) {
-    throw new HTTPException(403, { message: 'Origin not allowed' });
-  }
-
-  return cors({
-    origin: origin,
-    credentials: true,
-  })(c, next);
-});
+// CORS middleware - simplified for token-based auth (no cookies needed)
+app.use('/*', cors({
+  origin: (origin) => {
+    // No origin = same-origin or non-browser request
+    if (!origin) return '*';
+    // Check if origin is allowed
+    if (ALLOWED_ORIGINS.includes(origin)) return origin;
+    // Also allow any *.pages.dev subdomain (Cloudflare preview deployments)
+    if (origin.endsWith('.pages.dev')) return origin;
+    // Reject unknown origins
+    console.error('CORS Rejected:', origin);
+    return null;
+  },
+  // No credentials: true needed - we use Authorization header, not cookies
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+  exposeHeaders: ['X-Request-ID'],
+  maxAge: 86400, // Cache preflight for 24 hours
+}));
 
 // Error Handler
 app.onError((err, c) => {
   const requestId = c.get('requestId');
+  
   if (err instanceof HTTPException) {
     return c.json({ message: err.message, requestId }, err.status);
   }
@@ -111,7 +120,18 @@ app.route('/v1/waitlist', waitlistRouter);
 app.route('/v1/curriculum', curriculumDerivedRouter);
 app.route('/v1/validator', validatorRouter);
 app.route('/v1/speech', speechRouter);
-app.route('/v1/auth', authRouter); // Better Auth routes
+app.route('/v1/audio', audioRouter);
+app.route('/v1/lesson-cache', lessonCacheRouter);
+app.route('/v1/ai-assistant', aiAssistantRouter);
+app.route('/v1/story-series', storySeriesRouter);
+app.route('/v1/story-categories', storyCategoriesRouter);
+// Token auth must come BEFORE Better Auth's catch-all
+app.route('/v1/auth/token', tokenAuthRouter); // Token-based auth (JWT, no cookies)
+app.route('/v1/auth', authRouter); // Better Auth routes (cookie-based, keeping for backwards compat)
+app.route('/v1/control-center', controlCenterRouter); // Content staging system
+app.route('/v1/announcements', announcementsRouter); // SDUI announcements
+app.route('/v1/lesson-alternatives', lessonAlternativesRouter); // Alternatives & connected words
+app.route('/v1/ai-tutor', aiTutorRouter); // AI Tutor lesson generation
 
 // Export default handler with cron support
 export default {

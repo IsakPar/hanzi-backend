@@ -1,0 +1,27 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="50%" stop-color="#EC4899"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <filter id="sparkleGlow">
+      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Main star burst -->
+  <path d="M32 4L36 24L56 20L40 32L56 44L36 40L32 60L28 40L8 44L24 32L8 20L28 24L32 4Z" fill="url(#sparkleGrad)" filter="url(#sparkleGlow)"/>
+  <!-- Inner glow -->
+  <circle cx="32" cy="32" r="8" fill="white" opacity="0.6"/>
+  <circle cx="32" cy="32" r="4" fill="white"/>
+  <!-- Small sparkles -->
+  <circle cx="14" cy="14" r="2" fill="#FCD34D"/>
+  <circle cx="50" cy="12" r="1.5" fill="#EC4899"/>
+  <circle cx="52" cy="50" r="2" fill="#8B5CF6"/>
+  <circle cx="12" cy="48" r="1.5" fill="#F59E0B"/>
+</svg>
+

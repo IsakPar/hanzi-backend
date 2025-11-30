@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { AIService } from '../domains/ai/services/ai.service';
 import { RateLimitExceededError } from '../services/rate-limit';
 import { AnalyticsService } from '../services/analytics';
 import { ModelManagerService } from '../services/model-manager';
 import { PipelineExecutor, createLegacyPipeline } from '../services/pipeline-executor';
 import { PromptTemplateService } from '../domains/prompts/services/prompt-template.service';
+import { AIChatService } from '../services/ai-chat';
 import { logWithContext } from '../utils/logger';
 import type { AppEnv } from '../types/app';
 import type { PipelineStep, CostLimits, QualityGate } from '../schema';
@@ -15,7 +16,7 @@ import OpenAI from 'openai';
 
 const app = new Hono<AppEnv>();
 
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // Schema for the "Piggyback" Request
 const generateSchema = z.object({
@@ -437,6 +438,83 @@ app.get('/models', async (c) => {
     });
   } catch (err: any) {
     return c.json({ error: 'Failed to fetch models', message: err.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// AI CHAT (with Vectorize semantic search)
+// ═══════════════════════════════════════════════════════════
+
+const chatSchema = z.object({
+  message: z.string().min(1).max(5000),
+  conversationHistory: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string(),
+  })).optional(),
+  explicitContext: z.array(z.object({
+    type: z.enum(['lesson', 'story', 'vocabulary', 'unit']),
+    id: z.string(),
+    title: z.string().optional(),
+    content: z.string().optional(),
+  })).optional(),
+  hskLevel: z.number().int().min(1).max(9).optional(),
+  systemPrompt: z.string().optional(),
+});
+
+/**
+ * POST /chat - AI Chat with semantic search
+ * Uses dual-model architecture + Vectorize for context retrieval
+ */
+app.post('/chat', zValidator('json', chatSchema), async (c) => {
+  const body = c.req.valid('json');
+  const requestId = c.get('requestId');
+  const config = c.get('config');
+  
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    // Create chat service with Vectorize bindings
+    const chatService = new AIChatService(
+      c.env.DB,
+      config.secrets.openRouterApiKey || config.secrets.openAIApiKey,
+      requestId,
+      c.env.VECTORIZE, // Vectorize index
+      c.env.AI         // Workers AI for embeddings
+    );
+
+    const result = await chatService.chat({
+      message: body.message,
+      conversationHistory: body.conversationHistory,
+      explicitContext: body.explicitContext,
+      hskLevel: body.hskLevel,
+      systemPrompt: body.systemPrompt,
+    });
+
+    return c.json({
+      response: result.response,
+      meta: {
+        intent: result.intent,
+        dataFetched: result.dataFetched,
+        tokensUsed: result.tokensUsed.total,
+        cost: result.cost,
+        latencyMs: result.latencyMs,
+        contextUsed: result.dataFetched,
+      },
+    });
+
+  } catch (err: any) {
+    logWithContext('error', 'ai.chat.failed', {
+      requestId,
+      meta: { error: err.message || String(err) },
+    });
+    
+    return c.json({ 
+      error: 'Chat failed', 
+      message: err.message || 'Unknown error' 
+    }, 500);
   }
 });
 

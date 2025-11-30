@@ -1,15 +1,18 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { lessons, lessonBlocks, waitlist, tierLimits } from '../schema';
+import { lessons, lessonBlocks, waitlist, tierLimits, vocabulary, stories } from '../schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { createRevenueCatClient } from '../services/revenuecat-client';
+import { VectorizeService } from '../services/vectorize';
+import { AIUsageLogger } from '../services/ai-usage-logger';
 
 // Default tier limits (used when database has no records)
+// Tiers: free (default), premium ($9.99/month, shown as "Master" in UI), pro (admin/internal)
 const DEFAULT_TIER_LIMITS = {
   free: {
     tier: 'free' as const,
@@ -26,8 +29,8 @@ const DEFAULT_TIER_LIMITS = {
     requestsPerDay: 100,
     tokensPerDay: 50000,
     maxParallelGenerations: 3,
-    contentDownloadsPerDay: 50,
-    offlinePackagesAllowed: 3,
+    contentDownloadsPerDay: 999999,
+    offlinePackagesAllowed: 6,
     canAccessPremiumContent: true,
     updatedAt: null as Date | null,
   },
@@ -46,7 +49,7 @@ const DEFAULT_TIER_LIMITS = {
 const app = new Hono<AppEnv>();
 
 // Protect all routes in this file - requires admin role via Better Auth session
-app.use('/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // Get Waitlist
 app.get('/waitlist', async (c) => {
@@ -156,6 +159,653 @@ app.post('/lessons', zValidator('json', createLessonSchema), async (c) => {
       },
     });
     return c.json({ error: 'Failed to create lesson' }, 500);
+  }
+});
+
+// ========================================
+// LESSONS LIST (Admin view - all lessons)
+// ========================================
+
+/**
+ * GET /lessons - List all lessons for admin (published + drafts)
+ * Used by AIFilePickerModal and lesson management
+ */
+app.get('/lessons', async (c) => {
+  const requestId = c.get('requestId');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    // Get query params for optional filtering
+    const hskLevel = c.req.query('hskLevel');
+    const unitId = c.req.query('unitId');
+    
+    // Build query
+    let query = db
+      .select({
+        id: lessons.id,
+        title: lessons.title,
+        subtitle: lessons.subtitle,
+        lessonNumber: lessons.lessonNumber,
+        lessonType: lessons.lessonType,
+        hskLevel: lessons.hskLevel,
+        unitId: lessons.unitId,
+        difficulty: lessons.difficulty,
+        description: lessons.description,
+        estimatedMinutes: lessons.estimatedMinutes,
+        isPublished: lessons.isPublished,
+        version: lessons.version,
+        createdAt: lessons.createdAt,
+        updatedAt: lessons.updatedAt,
+      })
+      .from(lessons);
+    
+    // Apply filters if provided
+    const conditions = [];
+    if (hskLevel) {
+      conditions.push(eq(lessons.hskLevel, parseInt(hskLevel)));
+    }
+    if (unitId) {
+      conditions.push(eq(lessons.unitId, unitId));
+    }
+    
+    const results = conditions.length > 0 
+      ? await query.where(and(...conditions)).orderBy(lessons.hskLevel, lessons.lessonNumber)
+      : await query.orderBy(lessons.hskLevel, lessons.lessonNumber);
+    
+    // Get block counts for each lesson
+    const lessonsWithBlockCount = await Promise.all(
+      results.map(async (lesson) => {
+        const blocks = await db
+          .select({ id: lessonBlocks.id })
+          .from(lessonBlocks)
+          .where(eq(lessonBlocks.lessonId, lesson.id));
+        
+        return {
+          ...lesson,
+          blockCount: blocks.length,
+        };
+      })
+    );
+    
+    logWithContext('info', 'admin.lessons.list', {
+      requestId,
+      meta: { count: lessonsWithBlockCount.length },
+    });
+    
+    return c.json({ lessons: lessonsWithBlockCount });
+  } catch (error) {
+    logWithContext('error', 'admin.lessons.list_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to fetch lessons' }, 500);
+  }
+});
+
+// ========================================
+// USER MANAGEMENT
+// ========================================
+
+/**
+ * GET /users - List all users (paginated)
+ * Used by UserManagement.tsx
+ */
+app.get('/users', async (c) => {
+  const requestId = c.get('requestId');
+  
+  try {
+    // Get pagination params
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '20');
+    const search = c.req.query('search') || '';
+    const role = c.req.query('role'); // 'admin' | 'user'
+    const tier = c.req.query('tier'); // 'free' | 'premium' | 'pro'
+    
+    const offset = (page - 1) * limit;
+    
+    // Build SQL query for ba_user table (Better Auth users)
+    let whereClause = '';
+    const params: (string | number)[] = [];
+    const conditions: string[] = [];
+    
+    if (search) {
+      conditions.push('(email LIKE ? OR name LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (role) {
+      conditions.push('role = ?');
+      params.push(role);
+    }
+    if (tier) {
+      conditions.push('tier = ?');
+      params.push(tier);
+    }
+    
+    if (conditions.length > 0) {
+      whereClause = 'WHERE ' + conditions.join(' AND ');
+    }
+    
+    // Get total count
+    const countQuery = `SELECT COUNT(*) as total FROM ba_user ${whereClause}`;
+    const countResult = await c.env.DB.prepare(countQuery).bind(...params).first<{ total: number }>();
+    const total = countResult?.total || 0;
+    
+    // Get users
+    const usersQuery = `
+      SELECT id, email, name, role, tier, email_verified, created_at, updated_at
+      FROM ba_user
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const users = await c.env.DB.prepare(usersQuery)
+      .bind(...params, limit, offset)
+      .all();
+    
+    logWithContext('info', 'admin.users.list', {
+      requestId,
+      meta: { page, limit, total, count: users.results?.length || 0 },
+    });
+    
+    return c.json({
+      users: users.results || [],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    logWithContext('error', 'admin.users.list_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to fetch users' }, 500);
+  }
+});
+
+/**
+ * POST /users - Create/invite a new user
+ * Used by UserManagement.tsx
+ */
+const createUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).optional(),
+  role: z.enum(['admin', 'user']).default('user'),
+  tier: z.enum(['free', 'premium', 'pro']).default('free'),
+  password: z.string().min(8).optional(), // If not provided, user needs to reset
+});
+
+app.post('/users', zValidator('json', createUserSchema), async (c) => {
+  const requestId = c.get('requestId');
+  const data = c.req.valid('json');
+  
+  try {
+    const userId = crypto.randomUUID();
+    const now = Date.now();
+    
+    // Check if email already exists
+    const existing = await c.env.DB.prepare(
+      'SELECT id FROM ba_user WHERE email = ?'
+    ).bind(data.email).first();
+    
+    if (existing) {
+      return c.json({ error: 'User with this email already exists' }, 409);
+    }
+    
+    // Create user in ba_user table
+    // Note: Password should be hashed by Better Auth, for now we create without password
+    // User will need to use "forgot password" to set their password
+    await c.env.DB.prepare(`
+      INSERT INTO ba_user (id, email, name, role, tier, email_verified, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).bind(
+      userId,
+      data.email,
+      data.name || null,
+      data.role,
+      data.tier,
+      now,
+      now
+    ).run();
+    
+    logWithContext('info', 'admin.users.created', {
+      requestId,
+      meta: { userId, email: data.email, role: data.role },
+    });
+    
+    return c.json({ 
+      success: true, 
+      user: {
+        id: userId,
+        email: data.email,
+        name: data.name,
+        role: data.role,
+        tier: data.tier,
+      },
+      message: 'User created. They should use "Forgot Password" to set their password.',
+    }, 201);
+  } catch (error) {
+    logWithContext('error', 'admin.users.create_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to create user' }, 500);
+  }
+});
+
+/**
+ * PUT /users/:userId - Update user role/tier
+ * Used by UserManagement.tsx
+ */
+const updateUserSchema = z.object({
+  name: z.string().min(1).optional(),
+  role: z.enum(['admin', 'user']).optional(),
+  tier: z.enum(['free', 'premium', 'pro']).optional(),
+});
+
+app.put('/users/:userId', zValidator('json', updateUserSchema), async (c) => {
+  const requestId = c.get('requestId');
+  const { userId } = c.req.param();
+  const data = c.req.valid('json');
+  
+  try {
+    // Check user exists
+    const existing = await c.env.DB.prepare(
+      'SELECT id FROM ba_user WHERE id = ?'
+    ).bind(userId).first();
+    
+    if (!existing) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Build update query
+    const updates: string[] = [];
+    const params: (string | number)[] = [];
+    
+    if (data.name !== undefined) {
+      updates.push('name = ?');
+      params.push(data.name);
+    }
+    if (data.role !== undefined) {
+      updates.push('role = ?');
+      params.push(data.role);
+    }
+    if (data.tier !== undefined) {
+      updates.push('tier = ?');
+      params.push(data.tier);
+    }
+    
+    if (updates.length === 0) {
+      return c.json({ error: 'No updates provided' }, 400);
+    }
+    
+    updates.push('updated_at = ?');
+    params.push(Date.now());
+    params.push(userId);
+    
+    await c.env.DB.prepare(
+      `UPDATE ba_user SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...params).run();
+    
+    logWithContext('info', 'admin.users.updated', {
+      requestId,
+      meta: { userId, updates: Object.keys(data) },
+    });
+    
+    return c.json({ success: true, message: 'User updated' });
+  } catch (error) {
+    logWithContext('error', 'admin.users.update_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to update user' }, 500);
+  }
+});
+
+/**
+ * DELETE /users/:userId - Delete a user
+ * Used by UserManagement.tsx
+ */
+app.delete('/users/:userId', async (c) => {
+  const requestId = c.get('requestId');
+  const { userId } = c.req.param();
+  const currentUser = c.get('user');
+  
+  try {
+    // Prevent self-deletion
+    if (currentUser?.id === userId) {
+      return c.json({ error: 'Cannot delete your own account' }, 400);
+    }
+    
+    // Check user exists
+    const existing = await c.env.DB.prepare(
+      'SELECT id, email FROM ba_user WHERE id = ?'
+    ).bind(userId).first<{ id: string; email: string }>();
+    
+    if (!existing) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Delete user (Better Auth sessions will be invalidated automatically)
+    await c.env.DB.prepare('DELETE FROM ba_user WHERE id = ?').bind(userId).run();
+    
+    // Also clean up any sessions
+    await c.env.DB.prepare('DELETE FROM ba_session WHERE user_id = ?').bind(userId).run();
+    
+    logWithContext('info', 'admin.users.deleted', {
+      requestId,
+      meta: { userId, email: existing.email },
+    });
+    
+    return c.json({ success: true, message: 'User deleted' });
+  } catch (error) {
+    logWithContext('error', 'admin.users.delete_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to delete user' }, 500);
+  }
+});
+
+/**
+ * POST /users/:userId/resend-invite - Resend invite email
+ * (Placeholder - would need email service integration)
+ */
+app.post('/users/:userId/resend-invite', async (c) => {
+  const requestId = c.get('requestId');
+  const { userId } = c.req.param();
+  
+  try {
+    const user = await c.env.DB.prepare(
+      'SELECT id, email FROM ba_user WHERE id = ?'
+    ).bind(userId).first<{ id: string; email: string }>();
+    
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // TODO: Integrate with email service (Resend) to send password reset email
+    // For now, just log and return success
+    logWithContext('info', 'admin.users.resend_invite', {
+      requestId,
+      meta: { userId, email: user.email },
+    });
+    
+    return c.json({ 
+      success: true, 
+      message: 'User should use "Forgot Password" on login page to set their password.',
+    });
+  } catch (error) {
+    logWithContext('error', 'admin.users.resend_invite_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to resend invite' }, 500);
+  }
+});
+
+// ========================================
+// SUBSCRIPTION MANAGEMENT ENDPOINTS
+// ========================================
+
+/**
+ * GET /subscriptions/overview - Get subscription overview metrics
+ * Returns counts by tier, status, platform for admin dashboard
+ */
+app.get('/subscriptions/overview', async (c) => {
+  const requestId = c.get('requestId');
+  
+  try {
+    // Get tier breakdown
+    const tierStats = await c.env.DB.prepare(`
+      SELECT tier, COUNT(*) as count
+      FROM users
+      GROUP BY tier
+    `).all();
+    
+    // Get status breakdown
+    const statusStats = await c.env.DB.prepare(`
+      SELECT subscription_status, COUNT(*) as count
+      FROM users
+      GROUP BY subscription_status
+    `).all();
+    
+    // Get platform breakdown
+    const platformStats = await c.env.DB.prepare(`
+      SELECT subscription_platform, COUNT(*) as count
+      FROM users
+      WHERE subscription_platform IS NOT NULL
+      GROUP BY subscription_platform
+    `).all();
+    
+    // Get expiring in 7 days
+    const sevenDaysFromNow = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
+    const now = Math.floor(Date.now() / 1000);
+    const expiringResult = await c.env.DB.prepare(`
+      SELECT COUNT(*) as count
+      FROM users
+      WHERE subscription_expires_at > ? AND subscription_expires_at <= ?
+    `).bind(now, sevenDaysFromNow).first();
+    
+    // Get total users
+    const totalResult = await c.env.DB.prepare(`
+      SELECT COUNT(*) as count FROM users
+    `).first();
+    
+    // Build response (premium = Master in UI)
+    const byTier: Record<string, number> = { free: 0, premium: 0, pro: 0 };
+    for (const row of tierStats.results || []) {
+      const tier = (row.tier as string) || 'free';
+      byTier[tier] = row.count as number;
+    }
+    
+    const byStatus: Record<string, number> = { none: 0, active: 0, past_due: 0, canceled: 0, expired: 0 };
+    for (const row of statusStats.results || []) {
+      const status = (row.subscription_status as string) || 'none';
+      byStatus[status] = row.count as number;
+    }
+    
+    const byPlatform: Record<string, number> = { ios: 0, android: 0, web: 0 };
+    for (const row of platformStats.results || []) {
+      const platform = row.subscription_platform as string;
+      if (platform) {
+        byPlatform[platform] = row.count as number;
+      }
+    }
+    
+    return c.json({
+      totalUsers: (totalResult?.count as number) || 0,
+      byTier,
+      byStatus,
+      byPlatform,
+      expiringIn7Days: (expiringResult?.count as number) || 0,
+    });
+  } catch (error) {
+    logWithContext('error', 'admin.subscriptions.overview_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to fetch subscription overview' }, 500);
+  }
+});
+
+/**
+ * POST /subscriptions/grant-promo - Grant promotional access to a user
+ * Useful for giving free trials via RevenueCat
+ */
+app.post('/subscriptions/grant-promo', zValidator('json', z.object({
+  userId: z.string(),
+  tier: z.enum(['premium', 'pro']), // premium = Master in UI
+  durationDays: z.number().int().min(1).max(365),
+})), async (c) => {
+  const requestId = c.get('requestId');
+  const { userId, tier, durationDays } = c.req.valid('json');
+  
+  try {
+    // Get user's clerk_id for RevenueCat
+    const user = await c.env.DB.prepare(`
+      SELECT clerk_id FROM users WHERE id = ?
+    `).bind(userId).first() as { clerk_id: string } | null;
+    
+    if (!user?.clerk_id) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Try to grant via RevenueCat if configured
+    const rcClient = createRevenueCatClient(c.env);
+    if (rcClient) {
+      // Map tier to RevenueCat entitlement (premium -> master entitlement)
+      const entitlementId = tier === 'pro' ? 'pro' : 'master';
+      const granted = await rcClient.grantPromotionalEntitlement(
+        user.clerk_id,
+        entitlementId,
+        durationDays
+      );
+      
+      if (!granted) {
+        logWithContext('warn', 'admin.subscriptions.rc_promo_failed', {
+          requestId,
+          meta: { userId, tier },
+        });
+      }
+    }
+    
+    // Update user tier directly as backup
+    const expiresAt = Math.floor(Date.now() / 1000) + (durationDays * 24 * 60 * 60);
+    await c.env.DB.prepare(`
+      UPDATE users 
+      SET tier = ?, 
+          subscription_status = 'active',
+          subscription_expires_at = ?,
+          updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `).bind(tier, expiresAt, userId).run();
+    
+    logWithContext('info', 'admin.subscriptions.promo_granted', {
+      requestId,
+      meta: { userId, tier, durationDays },
+    });
+    
+    return c.json({ 
+      success: true, 
+      message: `Granted ${durationDays} days of ${tier} access`,
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    });
+  } catch (error) {
+    logWithContext('error', 'admin.subscriptions.grant_promo_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Failed to grant promotional access' }, 500);
+  }
+});
+
+// ========================================
+// CONTENT/AUDIO UPLOAD ENDPOINTS
+// ========================================
+
+/**
+ * POST /content/upload - Simple audio file upload to R2
+ * Used by audioAPI.ts in portal
+ */
+app.post('/content/upload', async (c) => {
+  const requestId = c.get('requestId');
+  
+  try {
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File | null;
+    const lessonId = formData.get('lessonId') as string || 'general';
+    const context = formData.get('context') as string || 'audio';
+    
+    if (!file) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+    
+    // Validate file type
+    const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-m4a'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ error: `Unsupported file type: ${file.type}` }, 400);
+    }
+    
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      return c.json({ error: 'File too large. Maximum size is 10MB.' }, 400);
+    }
+    
+    // Generate unique key
+    const ext = file.name.split('.').pop() || 'mp3';
+    const key = `audio/${lessonId}/${context}/${crypto.randomUUID()}.${ext}`;
+    
+    // Upload to R2
+    const fileBuffer = await file.arrayBuffer();
+    await c.env.CONTENT_BUCKET.put(key, fileBuffer, {
+      httpMetadata: {
+        contentType: file.type,
+      },
+    });
+    
+    // Generate URL (public or signed)
+    const url = `https://content.polymasterlabs.com/${key}`;
+    
+    logWithContext('info', 'admin.content.upload', {
+      requestId,
+      meta: { key, size: file.size, type: file.type },
+    });
+    
+    return c.json({ 
+      success: true, 
+      url, 
+      key,
+      size: file.size,
+    }, 201);
+  } catch (error) {
+    logWithContext('error', 'admin.content.upload_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Upload failed' }, 500);
+  }
+});
+
+/**
+ * DELETE /content/audio - Delete audio file from R2
+ * Used by audioAPI.ts in portal
+ */
+app.delete('/content/audio', async (c) => {
+  const requestId = c.get('requestId');
+  
+  try {
+    const { url, key } = await c.req.json();
+    
+    // Extract key from URL if needed
+    let r2Key = key;
+    if (!r2Key && url) {
+      // Parse key from URL like https://content.polymasterlabs.com/audio/...
+      const match = url.match(/content\.polymasterlabs\.com\/(.+)/);
+      r2Key = match ? match[1] : null;
+    }
+    
+    if (!r2Key) {
+      return c.json({ error: 'No key or URL provided' }, 400);
+    }
+    
+    // Delete from R2
+    await c.env.CONTENT_BUCKET.delete(r2Key);
+    
+    logWithContext('info', 'admin.content.audio_deleted', {
+      requestId,
+      meta: { key: r2Key },
+    });
+    
+    return c.json({ success: true });
+  } catch (error) {
+    logWithContext('error', 'admin.content.audio_delete_failed', {
+      requestId,
+      meta: { error: (error as Error).message },
+    });
+    return c.json({ error: 'Delete failed' }, 500);
   }
 });
 
@@ -483,7 +1133,6 @@ app.put('/tier-limits/:tier', zValidator('json', updateTierLimitsSchema), async 
         contentDownloadsPerDay: data.contentDownloadsPerDay,
         offlinePackagesAllowed: data.offlinePackagesAllowed,
         canAccessPremiumContent: data.canAccessPremiumContent,
-        updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: tierLimits.tier,
@@ -494,7 +1143,6 @@ app.put('/tier-limits/:tier', zValidator('json', updateTierLimitsSchema), async 
           contentDownloadsPerDay: data.contentDownloadsPerDay,
           offlinePackagesAllowed: data.offlinePackagesAllowed,
           canAccessPremiumContent: data.canAccessPremiumContent,
-          updatedAt: new Date(),
         },
       });
 
@@ -575,6 +1223,215 @@ app.post('/tier-limits/reset', async (c) => {
       meta: { error: (err as Error).message },
     });
     return c.json({ error: 'Failed to reset tier limits' }, 500);
+  }
+});
+
+// ========================================
+// VECTORIZE (Semantic Search) MANAGEMENT
+// ========================================
+
+/**
+ * POST /vectorize/populate - Populate Vectorize index with existing content
+ * Indexes vocabulary, lessons, and stories for semantic search
+ */
+app.post('/vectorize/populate', async (c) => {
+  const requestId = c.get('requestId');
+  const db = drizzle(c.env.DB);
+  
+  // Check if Vectorize bindings exist
+  if (!c.env.VECTORIZE || !c.env.AI) {
+    return c.json({ error: 'Vectorize not configured' }, 503);
+  }
+  
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, requestId);
+  
+  const results = {
+    vocabulary: { success: 0, failed: 0 },
+    lessons: { success: 0, failed: 0 },
+    stories: { success: 0, failed: 0 },
+    totalTime: 0,
+  };
+  
+  const startTime = Date.now();
+
+  try {
+    // 1. Index vocabulary
+    logWithContext('info', 'admin.vectorize.indexing_vocabulary', { requestId });
+    const vocab = await db.select().from(vocabulary);
+    
+    const vocabItems = vocab.map(v => ({
+      type: 'vocabulary' as const,
+      id: v.id,
+      text: `${v.hanzi} ${v.pinyin} ${v.english} ${v.category || ''} ${v.exampleChinese || ''}`,
+      metadata: {
+        title: v.hanzi,
+        hanzi: v.hanzi,
+        pinyin: v.pinyin,
+        hskLevel: v.hskLevel,
+      },
+    }));
+    
+    const vocabResult = await vectorize.upsertBatch(vocabItems);
+    results.vocabulary = vocabResult;
+
+    // 2. Index lessons
+    logWithContext('info', 'admin.vectorize.indexing_lessons', { requestId });
+    const lessonsList = await db.select().from(lessons);
+    
+    const lessonItems = lessonsList.map(l => ({
+      type: 'lesson' as const,
+      id: l.id,
+      text: `${l.title} ${l.subtitle || ''} ${l.description || ''} HSK ${l.hskLevel} ${l.lessonType}`,
+      metadata: {
+        title: l.title,
+        hskLevel: l.hskLevel,
+      },
+    }));
+    
+    const lessonResult = await vectorize.upsertBatch(lessonItems);
+    results.lessons = lessonResult;
+
+    // 3. Index stories
+    logWithContext('info', 'admin.vectorize.indexing_stories', { requestId });
+    const storiesList = await db.select().from(stories);
+    
+    const storyItems = storiesList.map(s => ({
+      type: 'story' as const,
+      id: s.id,
+      text: `${s.title} ${s.subtitle || ''} ${s.description || ''} ${s.topic || ''} HSK ${s.hskLevel}`,
+      metadata: {
+        title: s.title,
+        hskLevel: s.hskLevel,
+      },
+    }));
+    
+    const storyResult = await vectorize.upsertBatch(storyItems);
+    results.stories = storyResult;
+
+    results.totalTime = Date.now() - startTime;
+    
+    const stats = await vectorize.getStats();
+    
+    logWithContext('info', 'admin.vectorize.populate_complete', {
+      requestId,
+      meta: { results, vectorCount: stats.vectorCount },
+    });
+    
+    return c.json({
+      success: true,
+      results,
+      vectorCount: stats.vectorCount,
+      message: `Indexed ${results.vocabulary.success + results.lessons.success + results.stories.success} items in ${results.totalTime}ms`,
+    });
+
+  } catch (err) {
+    logWithContext('error', 'admin.vectorize.populate_failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({
+      success: false,
+      error: (err as Error).message,
+      results,
+      totalTime: Date.now() - startTime,
+    }, 500);
+  }
+});
+
+/**
+ * GET /vectorize/stats - Get Vectorize index statistics
+ */
+app.get('/vectorize/stats', async (c) => {
+  const requestId = c.get('requestId');
+  
+  if (!c.env.VECTORIZE || !c.env.AI) {
+    return c.json({ error: 'Vectorize not configured' }, 503);
+  }
+  
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, requestId);
+  
+  try {
+    const stats = await vectorize.getStats();
+    return c.json(stats);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+/**
+ * POST /vectorize/test-search - Test semantic search
+ */
+app.post('/vectorize/test-search', async (c) => {
+  const requestId = c.get('requestId');
+  const { query, type, hskLevel, limit } = await c.req.json();
+  
+  if (!query) {
+    return c.json({ error: 'Query required' }, 400);
+  }
+  
+  if (!c.env.VECTORIZE || !c.env.AI) {
+    return c.json({ error: 'Vectorize not configured' }, 503);
+  }
+  
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, requestId);
+  
+  try {
+    const results = await vectorize.search(query, {
+      type,
+      hskLevel,
+      topK: limit || 10,
+    });
+    
+    return c.json({
+      query,
+      results,
+      count: results.length,
+    });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// AI USAGE ANALYTICS
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * GET /ai-usage/summary - Get AI usage summary
+ */
+app.get('/ai-usage/summary', async (c) => {
+  const logger = new AIUsageLogger(c.env.DB);
+  const days = parseInt(c.req.query('days') || '30');
+  
+  try {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const summary = await logger.getSummary({ startDate });
+    const daily = await logger.getDailyUsage(days);
+    
+    return c.json({
+      period: `Last ${days} days`,
+      summary,
+      daily,
+    });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+/**
+ * GET /ai-usage/recent - Get recent AI usage entries
+ */
+app.get('/ai-usage/recent', async (c) => {
+  const logger = new AIUsageLogger(c.env.DB);
+  const limit = parseInt(c.req.query('limit') || '100');
+  
+  try {
+    const recent = await logger.getRecent(limit);
+    return c.json({ entries: recent });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 

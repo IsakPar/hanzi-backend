@@ -10,7 +10,7 @@
 import { Hono } from 'hono';
 import { eq, asc, and } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { lessons, vocabulary, curriculumVersion, stories, storySentences, contentLibrary } from '../schema';
 import { drizzle } from 'drizzle-orm/d1';
 import { createHash } from 'crypto';
@@ -231,7 +231,7 @@ app.get('/export', async (c) => {
  * POST /v1/curriculum/refresh
  * Force recalculate and update version (admin only)
  */
-app.post('/refresh', betterAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
+app.post('/refresh', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
   const db = drizzle(c.env.DB);
 
   const derived = await deriveCurriculum(db);

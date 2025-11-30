@@ -1,7 +1,7 @@
 /**
  * End-to-End User Journey Tests
  * 
- * Tests complete user flows:
+ * Tests complete user flows using Better Auth:
  * - Waitlist signup
  * - Unit and lesson management
  * - Premium upgrade flow
@@ -11,15 +11,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
-  createTestUser,
-  createAdminUser,
   createTestUnit,
   createTestLesson,
   createTestLessonBlock,
   createPremiumUser,
-  type TestUser,
 } from '../fixtures/seed-data';
-import { createLegacyToken, jsonAuthHeaders, authHeader } from '../fixtures/jwt-helpers';
+import {
+  createAuthenticatedAdmin,
+  createAuthenticatedUser,
+  createBetterAuthUser,
+  authCookieHeaders,
+  jsonAuthCookieHeaders,
+  type BetterAuthTestUser,
+} from '../fixtures/better-auth-helpers';
 
 describe.sequential('E2E: User Journeys', () => {
   let ctx: TestContext;
@@ -107,16 +111,11 @@ describe.sequential('E2E: User Journeys', () => {
   // ========================================
 
   describe('Admin Content Management', () => {
-    let adminUser: TestUser;
     let adminToken: string;
 
     beforeEach(async () => {
-      adminUser = await createAdminUser(ctx.db);
-      adminToken = await createLegacyToken(ctx.env.JWT_SECRET, {
-        sub: adminUser.id,
-        role: 'admin',
-        email: adminUser.email,
-      });
+      const admin = await createAuthenticatedAdmin(ctx.db);
+      adminToken = admin.sessionToken;
     });
 
     it('creates unit and lists it', async () => {
@@ -124,7 +123,7 @@ describe.sequential('E2E: User Journeys', () => {
       const createRes = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 1,
             title: 'Introduction to Chinese',
@@ -142,7 +141,7 @@ describe.sequential('E2E: User Journeys', () => {
       const listRes = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -160,7 +159,7 @@ describe.sequential('E2E: User Journeys', () => {
       const createRes = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             hanzi: '朋友',
             pinyin: 'péngyou',
@@ -201,7 +200,7 @@ describe.sequential('E2E: User Journeys', () => {
       const publishRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,
@@ -214,7 +213,7 @@ describe.sequential('E2E: User Journeys', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -286,12 +285,19 @@ describe.sequential('E2E: User Journeys', () => {
 
   describe('Premium Upgrade Flow', () => {
     it('upgrades user from free to premium via webhook', async () => {
-      const freeUser = await createTestUser(ctx.db, { tier: 'free' });
+      // Create a user with a clerk_id for webhook lookup
+      const userId = crypto.randomUUID();
+      const clerkId = `user_test_${Date.now()}`;
+      
+      await ctx.db.prepare(`
+        INSERT INTO users (id, clerk_id, email, name, role, tier, subscription_status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+      `).bind(userId, clerkId, 'test@example.com', 'Test User', 'user', 'free', 'none').run();
 
       // Verify initial state
       const initialState = await ctx.db
         .prepare('SELECT tier FROM users WHERE id = ?')
-        .bind(freeUser.id)
+        .bind(userId)
         .first<{ tier: string }>();
       expect(initialState?.tier).toBe('free');
 
@@ -306,7 +312,7 @@ describe.sequential('E2E: User Journeys', () => {
           body: JSON.stringify({
             event: {
               type: 'INITIAL_PURCHASE',
-              app_user_id: freeUser.clerkId,
+              app_user_id: clerkId,
               product_id: 'hanzi_premium_monthly',
               store: 'app_store',
               expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
@@ -323,7 +329,7 @@ describe.sequential('E2E: User Journeys', () => {
       // Verify upgrade
       const upgradedState = await ctx.db
         .prepare('SELECT tier, subscription_status FROM users WHERE id = ?')
-        .bind(freeUser.id)
+        .bind(userId)
         .first<{ tier: string; subscription_status: string }>();
 
       expect(upgradedState?.tier).toBe('premium');
@@ -380,12 +386,7 @@ describe.sequential('E2E: User Journeys', () => {
 
   describe('Error Recovery', () => {
     it('handles concurrent unit updates gracefully', async () => {
-      const adminUser = await createAdminUser(ctx.db);
-      const adminToken = await createLegacyToken(ctx.env.JWT_SECRET, {
-        sub: adminUser.id,
-        role: 'admin',
-        email: adminUser.email,
-      });
+      const { sessionToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
 
       const unit = await createTestUnit(ctx.db, {
         hskLevel: 3,
@@ -397,7 +398,7 @@ describe.sequential('E2E: User Journeys', () => {
         ctx.app.fetch(
           new Request(`http://localhost/v1/units/${unit.id}`, {
             method: 'PUT',
-            headers: jsonAuthHeaders(adminToken),
+            headers: jsonAuthCookieHeaders(adminToken),
             body: JSON.stringify({ title: `Concurrent Update ${i}` }),
           }),
           ctx.env,
@@ -422,18 +423,13 @@ describe.sequential('E2E: User Journeys', () => {
     });
 
     it('validates input and rejects invalid data', async () => {
-      const adminUser = await createAdminUser(ctx.db);
-      const adminToken = await createLegacyToken(ctx.env.JWT_SECRET, {
-        sub: adminUser.id,
-        role: 'admin',
-        email: adminUser.email,
-      });
+      const { sessionToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
 
       // Try to create unit with invalid HSK level
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 999, // Invalid: should be 1-9
             title: 'Invalid Unit',
@@ -447,18 +443,13 @@ describe.sequential('E2E: User Journeys', () => {
     });
 
     it('returns proper error for unauthorized access', async () => {
-      const regularUser = await createTestUser(ctx.db, { role: 'user' });
-      const userToken = await createLegacyToken(ctx.env.JWT_SECRET, {
-        sub: regularUser.id,
-        role: 'user',
-        email: regularUser.email,
-      });
+      const { sessionToken: userToken } = await createAuthenticatedUser(ctx.db);
 
       // Try to access admin endpoint
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'GET',
-          headers: authHeader(userToken),
+          headers: authCookieHeaders(userToken),
         }),
         ctx.env,
         executionContext

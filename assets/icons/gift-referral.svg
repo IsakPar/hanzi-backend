@@ -1,0 +1,33 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="giftBoxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <!-- Box body -->
+  <rect x="10" y="28" width="44" height="28" rx="3" fill="url(#giftBoxGrad)"/>
+  <!-- Box lid -->
+  <rect x="8" y="22" width="48" height="8" rx="2" fill="url(#giftBoxGrad)"/>
+  <rect x="8" y="22" width="48" height="3" rx="1" fill="#34D399" opacity="0.5"/>
+  <!-- Vertical ribbon -->
+  <rect x="28" y="22" width="8" height="34" fill="url(#ribbonGrad)"/>
+  <!-- Horizontal ribbon -->
+  <rect x="10" y="38" width="44" height="8" fill="url(#ribbonGrad)"/>
+  <!-- Bow -->
+  <ellipse cx="24" cy="18" rx="8" ry="6" fill="url(#ribbonGrad)"/>
+  <ellipse cx="40" cy="18" rx="8" ry="6" fill="url(#ribbonGrad)"/>
+  <circle cx="32" cy="20" r="4" fill="#D97706"/>
+  <!-- Bow tails -->
+  <path d="M20 22L16 28L22 26L20 22Z" fill="url(#ribbonGrad)"/>
+  <path d="M44 22L48 28L42 26L44 22Z" fill="url(#ribbonGrad)"/>
+  <!-- Sparkles -->
+  <circle cx="52" cy="10" r="2" fill="#FCD34D"/>
+  <circle cx="12" cy="14" r="1.5" fill="#F59E0B"/>
+  <circle cx="56" cy="18" r="1" fill="#FBBF24"/>
+</svg>
+

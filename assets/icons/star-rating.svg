@@ -1,0 +1,25 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="starGoldGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FDE047"/>
+      <stop offset="50%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="starGlow">
+      <feGaussianBlur stdDeviation="1" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Main star -->
+  <path d="M32 6L38 22L56 24L43 36L46 54L32 46L18 54L21 36L8 24L26 22L32 6Z" fill="url(#starGoldGrad)" filter="url(#starGlow)"/>
+  <!-- Shine -->
+  <path d="M32 12L36 22L48 24L38 32" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+  <!-- Small stars -->
+  <path d="M12 12L13 15L16 15L14 17L15 20L12 18L9 20L10 17L8 15L11 15L12 12Z" fill="#FBBF24" opacity="0.8"/>
+  <path d="M52 8L53 10L55 10L54 12L54 14L52 13L50 14L50 12L49 10L51 10L52 8Z" fill="#FDE047" opacity="0.7"/>
+  <path d="M8 42L9 44L11 44L10 46L10 48L8 47L6 48L6 46L5 44L7 44L8 42Z" fill="#D97706" opacity="0.6"/>
+</svg>
+

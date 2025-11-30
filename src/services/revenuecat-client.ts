@@ -99,12 +99,14 @@ export class RevenueCatClient {
     const entitlements = subscriber.subscriber.entitlements;
     
     // Map entitlement identifiers to tiers
-    // Adjust these based on your RevenueCat entitlement setup
+    // Pro = admin/internal use, Premium = $9.99/month (shown as "Master" in UI)
     if (entitlements['pro'] && this.isEntitlementActive(entitlements['pro'])) {
       return 'pro';
     }
     
-    if (entitlements['premium'] && this.isEntitlementActive(entitlements['premium'])) {
+    // Check for master or premium entitlement -> maps to 'premium' tier
+    if ((entitlements['master'] && this.isEntitlementActive(entitlements['master'])) ||
+        (entitlements['premium'] && this.isEntitlementActive(entitlements['premium']))) {
       return 'premium';
     }
 

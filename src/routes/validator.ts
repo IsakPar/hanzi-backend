@@ -13,7 +13,7 @@
 
 import { Hono } from 'hono';
 import type { AppEnv } from '../types/app';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
 
 const validatorRouter = new Hono<AppEnv>();
@@ -64,7 +64,7 @@ validatorRouter.get('/version', async (c) => {
 // ═══════════════════════════════════════════════════════════
 
 // POST /sync - Trigger curriculum sync (admin only)
-validatorRouter.post('/sync', betterAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
+validatorRouter.post('/sync', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
   const validatorUrl = getValidatorUrl(c);
   const apiKey = c.env.VALIDATOR_API_KEY;
   
@@ -93,7 +93,7 @@ validatorRouter.post('/sync', betterAuthMiddleware({ allowRoles: ['admin'] }), a
 });
 
 // POST /test - Test validation (admin only)
-validatorRouter.post('/test', betterAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
+validatorRouter.post('/test', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
   const validatorUrl = getValidatorUrl(c);
   
   try {

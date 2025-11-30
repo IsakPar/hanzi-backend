@@ -1,0 +1,27 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="redGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="100%" stop-color="#B91C1C"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+  <!-- Envelope body -->
+  <rect x="12" y="8" width="40" height="48" rx="4" fill="url(#redGrad)"/>
+  <!-- Flap -->
+  <path d="M12 8C12 8 32 24 52 8" stroke="#DC2626" stroke-width="2"/>
+  <path d="M12 12L32 26L52 12V8H12V12Z" fill="#DC2626"/>
+  <!-- Gold circle -->
+  <circle cx="32" cy="36" r="12" fill="url(#goldGrad)"/>
+  <!-- Fu character (simplified) -->
+  <path d="M28 32H36M32 28V44M26 36H38" stroke="#B91C1C" stroke-width="2" stroke-linecap="round"/>
+  <!-- Decorative corners -->
+  <path d="M16 12L16 20" stroke="url(#goldGrad)" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M48 12L48 20" stroke="url(#goldGrad)" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Shine -->
+  <ellipse cx="22" cy="18" rx="4" ry="2" fill="white" opacity="0.2"/>
+</svg>
+

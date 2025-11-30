@@ -50,6 +50,22 @@ export function createAuth(d1: D1Database, env: AuthEnv) {
       },
     }),
     
+    // Include custom user fields in session
+    user: {
+      additionalFields: {
+        role: {
+          type: 'string',
+          defaultValue: 'user',
+          returned: true, // Include in session response
+        },
+        tier: {
+          type: 'string', 
+          defaultValue: 'free',
+          returned: true, // Include in session response
+        },
+      },
+    },
+    
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: !!env.RESEND_API_KEY,
@@ -82,29 +98,36 @@ export function createAuth(d1: D1Database, env: AuthEnv) {
       autoSignInAfterVerification: true,
     } : undefined,
     
-    // Session configuration - 10 minute inactivity timeout
+    // Session configuration - 7 day expiry with refresh
     session: {
       cookieCache: {
         enabled: true,
-        maxAge: 60,
+        maxAge: 60 * 5, // Cache for 5 minutes
       },
-      expiresIn: 60 * 10, // 10 minutes
-      updateAge: 60,
+      expiresIn: 60 * 60 * 24 * 7, // 7 days
+      updateAge: 60 * 60, // Refresh session every hour
     },
     
-    // Trust proxy for Cloudflare
+    // Trust proxy for Cloudflare - cross-subdomain setup
     trustedOrigins: [
-      'https://hanzimaster-portal.pages.dev',
-      'https://hanzimaster-portal-v2.pages.dev',
+      'https://studio.polymasterlabs.com',
+      'https://api.studio.polymasterlabs.com',
+      'https://hanzimaster-studio.pages.dev',
+      'https://polymasterlabs.com',
       'http://localhost:5173',
       'http://localhost:8787',
       portalUrl,
     ],
     
-    // Advanced options
+    // Advanced options - enable cross-subdomain cookies for portal/API on different subdomains
     advanced: {
       crossSubDomainCookies: {
-        enabled: false,
+        enabled: true,
+        domain: '.polymasterlabs.com', // Allows cookies across all *.polymasterlabs.com subdomains
+      },
+      defaultCookieAttributes: {
+        sameSite: 'none', // Required for cross-origin requests with credentials
+        secure: true,     // Required when sameSite is 'none'
       },
     },
   });

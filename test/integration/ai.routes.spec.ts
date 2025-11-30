@@ -1,5 +1,16 @@
+/**
+ * AI Routes Integration Tests
+ * 
+ * Tests AI generation endpoint with mocked OpenAI.
+ * Uses Better Auth for authentication.
+ */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import {
+  createAuthenticatedAdmin,
+  authCookieHeaders,
+} from '../fixtures/better-auth-helpers';
 
 const mockedChatCreate = vi.fn(async () => ({
   choices: [
@@ -37,11 +48,9 @@ vi.mock('openai', () => {
 });
 
 const baseUrl = 'http://localhost';
-
 const promptsBase = 'http://localhost/v1/ai/prompts';
 
-async function seedActivePrompt(ctx: TestContext) {
-  const adminToken = await ctx.signAdminToken();
+async function seedActivePrompt(ctx: TestContext, sessionToken: string) {
   const body = JSON.stringify({
     slug: 'lesson_default',
     body: [
@@ -51,11 +60,12 @@ async function seedActivePrompt(ctx: TestContext) {
       'Return valid JSON with title and blocks.',
     ].join('\n'),
   });
+  
   await ctx.app.fetch(
     new Request(`${promptsBase}`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        ...authCookieHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body,
@@ -68,7 +78,7 @@ async function seedActivePrompt(ctx: TestContext) {
     new Request(`${promptsBase}/lesson_default/promote`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        ...authCookieHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ version: 1, reason: 'Activate default prompt' }),
@@ -90,11 +100,16 @@ async function seedActiveModel(ctx: TestContext) {
 
 describe.sequential('AI routes', () => {
   let ctx: TestContext;
+  let adminToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
     mockedChatCreate.mockClear();
-    await seedActivePrompt(ctx);
+    
+    const admin = await createAuthenticatedAdmin(ctx.db);
+    adminToken = admin.sessionToken;
+    
+    await seedActivePrompt(ctx, adminToken);
     await seedActiveModel(ctx);
   });
 
@@ -103,12 +118,11 @@ describe.sequential('AI routes', () => {
   });
 
   it('generates a lesson and records usage', async () => {
-    const adminToken = await ctx.signAdminToken();
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/ai/generate`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminToken}`,
+          ...authCookieHeaders(adminToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -138,4 +152,3 @@ describe.sequential('AI routes', () => {
     expect(usage.results[0].total_tokens).toBe(40);
   });
 });
-

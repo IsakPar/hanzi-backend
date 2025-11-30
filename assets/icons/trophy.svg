@@ -1,0 +1,29 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="trophyGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D"/>
+      <stop offset="50%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="baseGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#92400E"/>
+      <stop offset="100%" stop-color="#78350F"/>
+    </linearGradient>
+  </defs>
+  <!-- Cup body -->
+  <path d="M18 10H46V14C46 26 40 34 32 34C24 34 18 26 18 14V10Z" fill="url(#trophyGrad)"/>
+  <!-- Left handle -->
+  <path d="M18 14H12C12 14 10 14 10 18C10 22 12 24 16 24H18" stroke="url(#trophyGrad)" stroke-width="4" fill="none"/>
+  <!-- Right handle -->
+  <path d="M46 14H52C52 14 54 14 54 18C54 22 52 24 48 24H46" stroke="url(#trophyGrad)" stroke-width="4" fill="none"/>
+  <!-- Stem -->
+  <rect x="28" y="34" width="8" height="10" fill="url(#trophyGrad)"/>
+  <!-- Base -->
+  <path d="M22 44H42V48C42 50 40 52 38 52H26C24 52 22 50 22 48V44Z" fill="url(#baseGrad)"/>
+  <rect x="20" y="52" width="24" height="4" rx="1" fill="url(#baseGrad)"/>
+  <!-- Star -->
+  <path d="M32 16L34 20L38 20L35 23L36 27L32 24L28 27L29 23L26 20L30 20L32 16Z" fill="white" opacity="0.9"/>
+  <!-- Shine -->
+  <ellipse cx="24" cy="14" rx="3" ry="2" fill="white" opacity="0.4"/>
+</svg>
+

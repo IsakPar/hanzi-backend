@@ -5,36 +5,33 @@
  * - Units (full CRUD)
  * - Lessons (read-only via API, direct DB for setup)
  * - Vocabulary (admin CRUD)
+ * 
+ * Uses Better Auth for authentication.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
-  createTestUser,
-  createAdminUser,
   createTestUnit,
   createTestLesson,
   createTestLessonBlock,
   createTestVocab,
   createVocabBatch,
-  type TestUser,
-  type TestUnit,
 } from '../fixtures/seed-data';
-import { createLegacyToken, jsonAuthHeaders, authHeader } from '../fixtures/jwt-helpers';
+import {
+  createAuthenticatedAdmin,
+  authCookieHeaders,
+  jsonAuthCookieHeaders,
+} from '../fixtures/better-auth-helpers';
 
 describe.sequential('Data Integrity Critical Path', () => {
   let ctx: TestContext;
-  let adminUser: TestUser;
   let adminToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
-    adminUser = await createAdminUser(ctx.db);
-    adminToken = await createLegacyToken(ctx.env.JWT_SECRET, {
-      sub: adminUser.id,
-      role: 'admin',
-      email: adminUser.email,
-    });
+    const admin = await createAuthenticatedAdmin(ctx.db);
+    adminToken = admin.sessionToken;
   });
 
   afterEach(async () => {
@@ -57,7 +54,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify(unitData),
         }),
         ctx.env,
@@ -75,7 +72,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 2,
             title: 'First Unit',
@@ -89,7 +86,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 2,
             title: 'Second Unit',
@@ -110,7 +107,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -128,13 +125,13 @@ describe.sequential('Data Integrity Critical Path', () => {
         title: 'Original Title',
         description: 'Original Description',
         hskLevel: 1,
-        unitNumber: 99, // Use unique number to avoid conflicts
+        unitNumber: 99,
       });
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({ title: 'Updated Title' }),
         }),
         ctx.env,
@@ -147,7 +144,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -161,13 +158,13 @@ describe.sequential('Data Integrity Critical Path', () => {
     it('deletes unit successfully', async () => {
       const unit = await createTestUnit(ctx.db, {
         hskLevel: 3,
-        unitNumber: 88, // Unique
+        unitNumber: 88,
       });
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'DELETE',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -179,7 +176,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -192,7 +189,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/non-existent-id', {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -205,7 +202,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({
             // Missing required: hskLevel, title
             description: 'Just a description',
@@ -226,7 +223,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=4', {
           method: 'GET',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -328,7 +325,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify(vocabData),
         }),
         ctx.env,
@@ -440,7 +437,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'PUT',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({ english: 'updated meaning' }),
         }),
         ctx.env,
@@ -468,7 +465,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'DELETE',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -496,13 +493,12 @@ describe.sequential('Data Integrity Critical Path', () => {
   describe('Data Consistency', () => {
     it('deletes unit without associated lessons', async () => {
       const unit = await createTestUnit(ctx.db, { hskLevel: 8 });
-      // No associated lessons
 
       // Delete unit via API
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'DELETE',
-          headers: authHeader(adminToken),
+          headers: authCookieHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -531,7 +527,7 @@ describe.sequential('Data Integrity Critical Path', () => {
         ctx.app.fetch(
           new Request(`http://localhost/v1/units/${unit.id}`, {
             method: 'PUT',
-            headers: jsonAuthHeaders(adminToken),
+            headers: jsonAuthCookieHeaders(adminToken),
             body: JSON.stringify({ title: `Update ${i}` }),
           }),
           ctx.env,
@@ -572,7 +568,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthHeaders(adminToken),
+          headers: jsonAuthCookieHeaders(adminToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,

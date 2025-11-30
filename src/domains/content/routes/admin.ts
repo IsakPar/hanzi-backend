@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../../../middleware/better-auth';
+import { jwtAuthMiddleware } from '../../../middleware/jwt-auth';
 import type { AppEnv } from '../../../types/app';
 import { createContentServices } from '..';
 import type { UploadContentParams } from '../types';
@@ -99,7 +99,7 @@ const recordContentEvent = async (
 export const createAdminContentRouter = () => {
   const router = new Hono<AppEnv>();
 
-  router.use('/admin/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+  router.use('/admin/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
   router.post('/admin/upload', async (c) => {
   try {

@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import type { D1Database, R2Bucket, VectorizeIndex, Ai, KVNamespace } from '@cloudflare/workers-types';
 import type { RuntimeConfig } from '../config/runtime';
 
 export type AppUser = {
@@ -12,6 +12,9 @@ export type AppUser = {
 export type AppBindings = {
   DB: D1Database;
   CONTENT_BUCKET: R2Bucket;
+  // Vectorize for semantic search
+  VECTORIZE: VectorizeIndex;
+  AI: Ai;
   ALLOWED_ORIGINS?: string;
   OPENAI_API_KEY: string;
   OPENAI_BASE_URL?: string;
@@ -35,6 +38,8 @@ export type AppBindings = {
   REVENUECAT_WEBHOOK_SECRET?: string;
   // ElevenLabs
   ELEVENLABS_API_KEY?: string;
+  // Rate Limiting
+  RATE_LIMIT_KV?: KVNamespace;
 };
 
 export type AppVariables = {

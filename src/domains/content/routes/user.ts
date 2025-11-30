@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../../../middleware/better-auth';
+import { jwtAuthMiddleware } from '../../../middleware/jwt-auth';
 import { createContentServices } from '..';
 import type { AppEnv } from '../../../types/app';
 import { AnalyticsService } from '../../../services/analytics';
@@ -17,8 +17,8 @@ const progressSchema = z.object({
 export const createUserContentRouter = () => {
   const router = new Hono<AppEnv>();
 
-  router.use('/progress/*', betterAuthMiddleware({ allowRoles: ['user', 'admin'] }));
-  router.use('/favorite/*', betterAuthMiddleware({ allowRoles: ['user', 'admin'] }));
+  router.use('/progress/*', jwtAuthMiddleware({ allowRoles: ['user', 'admin'] }));
+  router.use('/favorite/*', jwtAuthMiddleware({ allowRoles: ['user', 'admin'] }));
 
   router.post('/progress/:id', zValidator('json', progressSchema), async (c) => {
     const contentId = c.req.param('id');

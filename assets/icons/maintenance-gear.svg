@@ -1,0 +1,23 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gearGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6B7280"/>
+      <stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <linearGradient id="wrenchGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9CA3AF"/>
+      <stop offset="100%" stop-color="#6B7280"/>
+    </linearGradient>
+  </defs>
+  <!-- Gear -->
+  <path d="M32 8L36 8L38 14L44 16L48 12L52 16L48 20L50 26L56 28L56 32L50 34L48 40L52 44L48 48L44 44L38 46L36 52L32 52L30 46L24 44L20 48L16 44L20 40L18 34L12 32L12 28L18 26L20 20L16 16L20 12L24 16L30 14L32 8Z" fill="url(#gearGrad)"/>
+  <circle cx="34" cy="30" r="8" fill="#1F2937"/>
+  <circle cx="34" cy="30" r="4" fill="#374151"/>
+  <!-- Wrench -->
+  <path d="M14 50L24 40L28 44L18 54L14 50Z" fill="url(#wrenchGrad)"/>
+  <path d="M24 40L28 36C30 34 30 34 28 32L22 38L24 40Z" fill="url(#wrenchGrad)"/>
+  <circle cx="16" cy="52" r="3" fill="#4B5563"/>
+  <!-- Shine -->
+  <ellipse cx="26" cy="18" rx="3" ry="2" fill="white" opacity="0.3"/>
+</svg>
+

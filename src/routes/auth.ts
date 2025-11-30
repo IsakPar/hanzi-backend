@@ -57,25 +57,70 @@ authRouter.post('/promote-admin', async (c) => {
  * - etc.
  */
 authRouter.all('/*', async (c) => {
-  const auth = createAuth(c.env.DB, {
-    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-    RESEND_API_KEY: c.env.RESEND_API_KEY,
-    PORTAL_URL: c.env.PORTAL_URL,
-  });
+  const origin = c.req.header('Origin');
   
-  // Better Auth expects the full path, so we need to construct it
-  const url = new URL(c.req.url);
-  // Rewrite path from /v1/auth/* to /api/auth/*
-  url.pathname = url.pathname.replace('/v1/auth', '/api/auth');
+  // Handle preflight OPTIONS requests
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': origin || '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  }
   
-  const request = new Request(url.toString(), {
-    method: c.req.method,
-    headers: c.req.raw.headers,
-    body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
-  });
-  
-  return auth.handler(request);
+  try {
+    const auth = createAuth(c.env.DB, {
+      BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+      RESEND_API_KEY: c.env.RESEND_API_KEY,
+      PORTAL_URL: c.env.PORTAL_URL,
+    });
+    
+    // Better Auth expects the full path, so we need to construct it
+    const url = new URL(c.req.url);
+    // Rewrite path from /v1/auth/* to /api/auth/*
+    url.pathname = url.pathname.replace('/v1/auth', '/api/auth');
+    
+    const request = new Request(url.toString(), {
+      method: c.req.method,
+      headers: c.req.raw.headers,
+      body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
+    });
+    
+    const response = await auth.handler(request);
+    
+    // Clone response and add CORS headers
+    const headers = new Headers(response.headers);
+    if (origin) {
+      headers.set('Access-Control-Allow-Origin', origin);
+      headers.set('Access-Control-Allow-Credentials', 'true');
+    }
+    
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    console.error('Auth error:', error);
+    const errorResponse = c.json({ 
+      error: 'Authentication service error', 
+      message: error instanceof Error ? error.message : 'Unknown error',
+    }, 500);
+    
+    // Add CORS headers to error response
+    if (origin) {
+      errorResponse.headers.set('Access-Control-Allow-Origin', origin);
+      errorResponse.headers.set('Access-Control-Allow-Credentials', 'true');
+    }
+    
+    return errorResponse;
+  }
 });
 
 export default authRouter;

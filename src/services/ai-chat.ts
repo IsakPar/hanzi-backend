@@ -3,14 +3,19 @@
  * Dual-model architecture:
  * - DeepSeek Chat: Tool-calling orchestrator (decides what data to fetch)
  * - Qwen Coder 32B: Response generator (creates the final answer)
+ * 
+ * Now with Vectorize for semantic search!
  */
 
-import { drizzle } from 'drizzle-orm/d1';
+import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import { eq, like, and, or, asc, sql } from 'drizzle-orm';
+import type { D1Database, VectorizeIndex, Ai } from '@cloudflare/workers-types';
 import * as schema from '../schema';
 import { createOpenRouterClient, OPENROUTER_MODELS, OPENROUTER_PRICING, getProviders } from './openrouter-client';
 import { decideTools, shouldUseOrchestrator, ToolCall } from './ai-orchestrator';
+import { VectorizeService, type EmbeddableType } from './vectorize';
 import { logWithContext } from '../utils/logger';
+import { AIUsageLogger } from './ai-usage-logger';
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -75,14 +80,33 @@ When data is provided in the "📊 Retrieved Data" section below, use it to answ
 // ═══════════════════════════════════════════════════════════
 
 export class AIChatService {
-  private db: ReturnType<typeof drizzle>;
+  private db: DrizzleD1Database<typeof schema>;
+  private d1: D1Database;
   private openrouterApiKey: string;
   private requestId: string;
+  private vectorize: VectorizeService | null;
+  private usageLogger: AIUsageLogger;
+  private userId?: string;
 
-  constructor(d1: D1Database, openrouterApiKey: string, requestId: string) {
+  constructor(
+    d1: D1Database, 
+    openrouterApiKey: string, 
+    requestId: string,
+    vectorizeIndex?: VectorizeIndex,
+    ai?: Ai,
+    userId?: string
+  ) {
     this.db = drizzle(d1, { schema });
+    this.d1 = d1;
     this.openrouterApiKey = openrouterApiKey;
     this.requestId = requestId;
+    this.userId = userId;
+    // Initialize Vectorize if bindings are provided
+    this.vectorize = (vectorizeIndex && ai) 
+      ? new VectorizeService(vectorizeIndex, ai, requestId) 
+      : null;
+    // Initialize usage logger
+    this.usageLogger = new AIUsageLogger(d1);
   }
 
   /**
@@ -205,6 +229,19 @@ export class AIChatService {
         },
       });
 
+      // Log AI usage to database for persistent analytics
+      await this.usageLogger.log({
+        userId: this.userId,
+        sessionId: this.requestId,
+        model: OPENROUTER_MODELS.QWEN_CODER_32B,
+        endpoint: '/v1/ai/chat',
+        inputTokens,
+        outputTokens,
+        latencyMs,
+        success: true,
+        metadata: { intent, dataFetched, orchestratorTokens, orchestratorCost },
+      });
+
       return {
         response: cleanResponse,
         intent,
@@ -223,6 +260,21 @@ export class AIChatService {
         requestId: this.requestId,
         meta: { error: (err as Error).message },
       });
+      
+      // Log failed attempt
+      await this.usageLogger.log({
+        userId: this.userId,
+        sessionId: this.requestId,
+        model: OPENROUTER_MODELS.QWEN_CODER_32B,
+        endpoint: '/v1/ai/chat',
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - startTime,
+        success: false,
+        errorMessage: (err as Error).message,
+        metadata: { intent },
+      });
+      
       throw err;
     }
   }
@@ -289,6 +341,34 @@ export class AIChatService {
               label = `HSK ${call.args.level} Overview`;
             }
             break;
+
+          // ═══════════════════════════════════════════════════════
+          // SEMANTIC SEARCH TOOLS (Vectorize)
+          // ═══════════════════════════════════════════════════════
+          case 'semantic_search':
+            if (this.vectorize && typeof call.args.query === 'string') {
+              const searchResults = await this.vectorize.search(call.args.query, {
+                type: call.args.type as EmbeddableType | undefined,
+                hskLevel: call.args.hskLevel,
+                topK: call.args.limit || 10,
+              });
+              // Fetch full details for top results
+              result = await this.enrichSearchResults(searchResults);
+              label = `Semantic search: "${call.args.query}"`;
+            }
+            break;
+
+          case 'find_similar':
+            if (this.vectorize && call.args.type && call.args.id) {
+              const similarResults = await this.vectorize.findSimilar(
+                call.args.type as EmbeddableType,
+                call.args.id,
+                call.args.limit || 5
+              );
+              result = await this.enrichSearchResults(similarResults);
+              label = `Similar to ${call.args.type}:${call.args.id}`;
+            }
+            break;
         }
 
         if (result !== null) {
@@ -310,25 +390,27 @@ export class AIChatService {
   // ═══════════════════════════════════════════════════════════
 
   private async lookupVocabByRowNumber(rowNum: number) {
-    // Use the actual row_num column instead of OFFSET
-    const vocab = await this.db.query.vocabulary.findFirst({
-      where: eq(schema.vocabulary.rowNum, rowNum),
+    // Use OFFSET to simulate row number (1-indexed)
+    const vocab = await this.db.query.vocabulary.findMany({
+      limit: 1,
+      offset: rowNum - 1,
     });
     
-    if (!vocab) return { error: `Vocabulary #${rowNum} not found` };
+    const item = vocab[0];
+    if (!item) return { error: `Vocabulary #${rowNum} not found` };
     
     return {
-      rowNum: vocab.rowNum,
-      id: vocab.id,
-      hanzi: vocab.hanzi,
-      pinyin: vocab.pinyin,
-      english: vocab.english,
-      hskLevel: vocab.hskLevel,
-      category: vocab.category,
-      example: vocab.exampleChinese ? {
-        chinese: vocab.exampleChinese,
-        pinyin: vocab.examplePinyin,
-        english: vocab.exampleEnglish,
+      rowNum: rowNum,
+      id: item.id,
+      hanzi: item.hanzi,
+      pinyin: item.pinyin,
+      english: item.english,
+      hskLevel: item.hskLevel,
+      category: item.category,
+      example: item.exampleChinese ? {
+        chinese: item.exampleChinese,
+        pinyin: item.examplePinyin,
+        english: item.exampleEnglish,
       } : null,
     };
   }
@@ -426,8 +508,8 @@ export class AIChatService {
       id: story.id,
       title: story.title,
       hskLevel: story.hskLevel,
-      category: story.category,
-      sentences: sentences.map(s => ({
+      topic: story.topic,
+      sentences: sentences.map((s: any) => ({
         chinese: s.chinese,
         pinyin: s.pinyin,
         english: s.english,
@@ -443,11 +525,11 @@ export class AIChatService {
 
     return {
       count: stories.length,
-      stories: stories.map(s => ({
+      stories: stories.map((s: any) => ({
         id: s.id,
         title: s.title,
         hskLevel: s.hskLevel,
-        category: s.category,
+        topic: s.topic,
       })),
     };
   }
@@ -485,8 +567,8 @@ export class AIChatService {
     return {
       hskLevel: level,
       vocabularyCount: vocab[0]?.count || 0,
-      lessons: lessons.map(l => ({ number: l.lessonNumber, title: l.title, type: l.lessonType })),
-      stories: stories.map(s => ({ title: s.title, category: s.category })),
+      lessons: lessons.map((l: any) => ({ number: l.lessonNumber, title: l.title, type: l.lessonType })),
+      stories: stories.map((s: any) => ({ title: s.title, topic: s.topic })),
     };
   }
 
@@ -494,22 +576,113 @@ export class AIChatService {
   // HELPER METHODS
   // ═══════════════════════════════════════════════════════════
 
+  /**
+   * Enrich vector search results with full database details
+   */
+  private async enrichSearchResults(
+    results: Array<{ id: string; score: number; metadata?: { type?: string; id?: string; hanzi?: string; title?: string; hskLevel?: number } }>
+  ): Promise<any[]> {
+    const enriched: any[] = [];
+
+    for (const result of results.slice(0, 10)) { // Limit to 10 for performance
+      const [type, id] = result.id.split(':');
+      
+      try {
+        let details: any = null;
+
+        switch (type) {
+          case 'vocabulary':
+            details = await this.db.query.vocabulary.findFirst({
+              where: eq(schema.vocabulary.id, id),
+            });
+            if (details) {
+              enriched.push({
+                type: 'vocabulary',
+                score: result.score,
+                hanzi: details.hanzi,
+                pinyin: details.pinyin,
+                english: details.english,
+                hskLevel: details.hskLevel,
+                example: details.exampleChinese ? {
+                  chinese: details.exampleChinese,
+                  pinyin: details.examplePinyin,
+                  english: details.exampleEnglish,
+                } : null,
+              });
+            }
+            break;
+
+          case 'lesson':
+            details = await this.db.query.lessons.findFirst({
+              where: eq(schema.lessons.id, id),
+            });
+            if (details) {
+              enriched.push({
+                type: 'lesson',
+                score: result.score,
+                id: details.id,
+                title: details.title,
+                lessonNumber: details.lessonNumber,
+                hskLevel: details.hskLevel,
+                lessonType: details.lessonType,
+                description: details.description,
+              });
+            }
+            break;
+
+          case 'story':
+            details = await this.db.query.stories.findFirst({
+              where: eq(schema.stories.id, id),
+            });
+            if (details) {
+              enriched.push({
+                type: 'story',
+                score: result.score,
+                id: details.id,
+                title: details.title,
+                hskLevel: details.hskLevel,
+                category: details.category,
+              });
+            }
+            break;
+
+          default:
+            // Return raw metadata if type unknown
+            enriched.push({
+              type,
+              score: result.score,
+              ...result.metadata,
+            });
+        }
+      } catch (err) {
+        // Skip failed lookups
+        logWithContext('warn', 'ai.enrich_search_failed', {
+          requestId: this.requestId,
+          meta: { id: result.id, error: (err as Error).message },
+        });
+      }
+    }
+
+    return enriched;
+  }
+
   private async loadSavedTuningPrompt(): Promise<string | null> {
     try {
-      const settings = await this.db.query.aiAssistantSettings.findFirst({
-        where: eq(schema.aiAssistantSettings.id, 'default'),
-      });
-      return settings?.tuningPrompt || null;
+      // Use raw SQL since aiAssistantSettings may not be in drizzle schema
+      const result = await this.db.all<{ tuning_prompt: string | null }>(
+        sql`SELECT tuning_prompt FROM ai_assistant_settings WHERE id = 'default' LIMIT 1`
+      );
+      return result[0]?.tuning_prompt || null;
     } catch { return null; }
   }
 
   private async loadSystemFiles(): Promise<{ name: string; content: string }[]> {
     try {
-      const files = await this.db.query.aiSystemFiles.findMany({
-        where: eq(schema.aiSystemFiles.isActive, true),
-        orderBy: schema.aiSystemFiles.orderIndex,
-      });
-      return files?.map(f => ({ name: f.name, content: f.content })) || [];
+      // Use raw SQL since aiSystemFiles may not be in drizzle schema
+      const files = await this.db.all<{ name: string; content: string }>(
+        sql`SELECT name, content FROM ai_system_files WHERE is_active = 1 ORDER BY order_index ASC`
+      );
+      return files || [];
     } catch { return []; }
   }
 

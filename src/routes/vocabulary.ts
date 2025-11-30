@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { drizzle } from 'drizzle-orm/d1';
 import { vocabulary } from '../schema';
 import { eq, like, and, or, desc, asc, sql } from 'drizzle-orm';
@@ -22,7 +22,7 @@ function escapeLikePattern(value: string): string {
 const app = new Hono<AppEnv>();
 
 // Protect admin routes
-app.use('/admin/*', betterAuthMiddleware({ allowRoles: ['admin'] }));
+app.use('/admin/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // === VALIDATION SCHEMAS ===
 

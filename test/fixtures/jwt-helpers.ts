@@ -177,5 +177,3 @@ export const TokenScenarios = {
     createInvalidSignatureToken(secret, userId),
 } as const;
 
-
-

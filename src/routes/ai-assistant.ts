@@ -10,13 +10,13 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq, desc, asc } from 'drizzle-orm';
 import * as schema from '../schema';
 import type { AppEnv } from '../types/env';
-import { betterAuthMiddleware } from '../middleware/better-auth';
+import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
 
 const app = new Hono<AppEnv>();
 
 // Auth required for all routes
-app.use('*', betterAuthMiddleware({ allowRoles: ['admin', 'user'] }));
+app.use('*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
 // ═══════════════════════════════════════════════════════════
 // TUNING PROMPT

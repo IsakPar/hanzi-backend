@@ -1,4 +1,12 @@
-import { SignJWT } from 'jose';
+/**
+ * Test Application Context
+ * 
+ * Provides a test context with:
+ * - In-memory D1 database
+ * - In-memory R2 bucket
+ * - Better Auth configured for testing
+ */
+
 import type { ExecutionContext } from 'hono';
 import type { AppBindings } from '../../src/types/app';
 import app from '../../src/index';
@@ -12,27 +20,12 @@ export type TestContext = {
   db: D1Database;
   r2: InMemoryR2Bucket;
   dispose: () => Promise<void>;
-  signAdminToken: () => Promise<string>;
-  signUserToken: () => Promise<string>;
 };
-
-const textEncoder = new TextEncoder();
 
 export const executionContext: ExecutionContext = {
   waitUntil() {},
   passThroughOnException() {},
 };
-
-async function ensureUser(db: D1Database, id: string, role: 'admin' | 'user', email: string) {
-  // Use INSERT OR IGNORE to handle potential conflicts in sequential tests
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO users (id, email, role, name)
-       VALUES (?, ?, ?, ?)`
-    )
-    .bind(id, email, role, role === 'admin' ? 'Admin' : 'User')
-    .run();
-}
 
 export async function createTestContext(): Promise<TestContext> {
   const harness = await createMigratedD1();
@@ -48,24 +41,14 @@ export async function createTestContext(): Promise<TestContext> {
     DEFAULT_AI_MODEL: 'gpt-integration',
     MAX_REQUESTS_PER_DAY: '5',
     MAX_TOKENS_PER_DAY: '1000',
-    JWT_SECRET: 'jwt-secret',
-    JWT_MAX_AGE: '1h',
     REVENUECAT_WEBHOOK_SECRET: 'test-webhook-secret',
-    ALLOW_LEGACY_AUTH: 'true', // Allow legacy auth for tests
+    // Legacy JWT config (still required by runtime config)
+    JWT_SECRET: 'test-jwt-secret-for-config-validation',
+    JWT_MAX_AGE: '1h',
+    // Better Auth configuration for tests
+    BETTER_AUTH_SECRET: 'test-better-auth-secret-at-least-32-chars',
+    BETTER_AUTH_URL: 'http://localhost',
   };
-
-  const adminUserId = 'admin-user';
-  const standardUserId = 'standard-user';
-  await ensureUser(harness.db, adminUserId, 'admin', 'admin@example.com');
-  await ensureUser(harness.db, standardUserId, 'user', 'user@example.com');
-
-  const signToken = async (sub: string, role: 'admin' | 'user') =>
-    new SignJWT({ role, email: `${role}@example.com` })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(sub)
-      .setIssuedAt()
-      .setExpirationTime('1h')
-      .sign(textEncoder.encode(env.JWT_SECRET));
 
   return {
     app,
@@ -73,8 +56,6 @@ export async function createTestContext(): Promise<TestContext> {
     db: harness.db,
     r2,
     dispose: harness.dispose,
-    signAdminToken: () => signToken(adminUserId, 'admin'),
-    signUserToken: () => signToken(standardUserId, 'user'),
   };
 }
 
