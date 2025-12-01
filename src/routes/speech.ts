@@ -395,7 +395,7 @@ app.post('/save', zValidator('json', saveSpeechSchema), async (c) => {
     });
 
     // Get CDN URL
-    const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.hanzimaster.com';
+    const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
     const audioUrl = `${cdnBaseUrl}/${r2Key}`;
 
     logWithContext('info', 'speech.saved', {
@@ -472,7 +472,7 @@ app.post('/generate-for-lesson', zValidator('json', generateLessonAudioSchema), 
   }
 
   // Get CDN URL
-  const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.hanzimaster.com';
+  const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
   const audioUrl = `${cdnBaseUrl}/${r2Key}`;
   const durationMs = estimateDuration(audioBuffer.byteLength);
 
@@ -609,7 +609,7 @@ app.post('/save-for-lesson', zValidator('json', saveLessonAudioSchema), async (c
     });
 
     // Get CDN URL
-    const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.hanzimaster.com';
+    const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
     const audioUrl = `${cdnBaseUrl}/${r2Key}`;
 
     logWithContext('info', 'speech.save_lesson_audio_success', {
