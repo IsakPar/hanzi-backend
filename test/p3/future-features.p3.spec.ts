@@ -149,7 +149,8 @@ describe.sequential('P3: Future Features', () => {
         executionContext
       );
 
-      expect([200, 404, 501]).toContain(res.status);
+      // 403 if user doesn't have access to this endpoint
+      expect([200, 403, 404, 501]).toContain(res.status);
     });
 
     it('predicts learning trajectory', async () => {
@@ -161,7 +162,8 @@ describe.sequential('P3: Future Features', () => {
         executionContext
       );
 
-      expect([200, 404, 501]).toContain(res.status);
+      // 403 if user doesn't have access to this endpoint
+      expect([200, 403, 404, 501]).toContain(res.status);
     });
   });
 

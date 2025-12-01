@@ -172,7 +172,7 @@ jobs:
           echo "Check the test output above for details."
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Notify on failure (optional Slack)
+  # Notify on failure (uses SLACK_BACKUP_WEBHOOK for all notifications)
   # ────────────────────────────────────────────────────────────────────────────
   notify:
     name: Notify
@@ -182,7 +182,7 @@ jobs:
 
     steps:
       - name: Slack notification
-        if: ${{ secrets.SLACK_LOAD_TEST_WEBHOOK }}
+        continue-on-error: true
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
@@ -199,6 +199,5 @@ jobs:
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_LOAD_TEST_WEBHOOK }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BACKUP_WEBHOOK }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-
