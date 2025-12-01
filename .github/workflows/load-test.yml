@@ -1,0 +1,167 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Load Testing Pipeline - k6 performance tests
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Triggers:
+#   - Push to main: Smoke tests only (quick sanity check)
+#   - Nightly (2 AM UTC): Full load tests
+#   - Weekly (Sunday 3 AM UTC): Soak tests
+#   - Manual: Configurable test type
+#
+# ⚠️  SAFETY: All tests target STAGING only, never production!
+# ⚠️  COST: AI endpoints are excluded from all automated runs!
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Load Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+  schedule:
+    # Nightly load tests at 2 AM UTC
+    - cron: '0 2 * * *'
+    # Weekly soak tests on Sunday at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - load
+          - soak
+          - stress
+
+concurrency:
+  group: load-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K6_VERSION: '0.49.0'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Determine which test to run
+  # ────────────────────────────────────────────────────────────────────────────
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      test_type: ${{ steps.determine.outputs.test_type }}
+      should_run: ${{ steps.determine.outputs.should_run }}
+
+    steps:
+      - name: Determine test type
+        id: determine
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "test_type=${{ github.event.inputs.test_type }}" >> $GITHUB_OUTPUT
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "test_type=smoke" >> $GITHUB_OUTPUT
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            # Check which schedule triggered
+            if [[ "${{ github.event.schedule }}" == "0 2 * * *" ]]; then
+              echo "test_type=load" >> $GITHUB_OUTPUT
+            else
+              echo "test_type=soak" >> $GITHUB_OUTPUT
+            fi
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Run k6 tests
+  # ────────────────────────────────────────────────────────────────────────────
+  k6:
+    name: k6 ${{ needs.setup.outputs.test_type }}
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should_run == 'true'
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: ${{ env.K6_VERSION }}
+
+      - name: Validate environment
+        run: |
+          if [[ -z "${{ secrets.STAGING_API_URL }}" ]]; then
+            echo "❌ STAGING_API_URL secret is required!"
+            echo "Set it in GitHub repo settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "✅ Environment validated"
+          echo "Target: ${{ secrets.STAGING_API_URL }}"
+
+      - name: Run k6 ${{ needs.setup.outputs.test_type }} test
+        run: |
+          k6 run test/k6/${{ needs.setup.outputs.test_type }}.js \
+            --out json=results.json \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)"
+        env:
+          API_URL: ${{ secrets.STAGING_API_URL }}
+          TEST_USER_JWT: ${{ secrets.TEST_USER_JWT }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results-${{ needs.setup.outputs.test_type }}-${{ github.run_number }}
+          path: results.json
+          retention-days: 30
+
+      - name: Check thresholds
+        if: failure()
+        run: |
+          echo "❌ k6 thresholds failed!"
+          echo "Check the test output above for details."
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Notify on failure (optional Slack)
+  # ────────────────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [setup, k6]
+    if: failure() && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Slack notification
+        if: ${{ secrets.SLACK_LOAD_TEST_WEBHOOK }}
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ k6 ${{ needs.setup.outputs.test_type }} test failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*⚠️ Load Test Failed*\n• Test: `${{ needs.setup.outputs.test_type }}`\n• Branch: `${{ github.ref_name }}`\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_LOAD_TEST_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
