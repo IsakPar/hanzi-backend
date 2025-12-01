@@ -339,6 +339,9 @@ app.get('/endpoints', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) =>
 /**
  * GET /health/test-all - Run comprehensive endpoint tests
  * Tests all major endpoints and returns detailed results
+ * 
+ * NOTE: We test internal services directly (not via HTTP) because
+ * Cloudflare Workers cannot fetch their own endpoints (causes 522 timeout).
  */
 app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
   const requestId = c.get('requestId');
@@ -347,27 +350,45 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
   logWithContext('info', 'health.test_all_start', { requestId });
 
   const results: EndpointTest[] = [];
-  const baseUrl = (c.env as Record<string, unknown>).PORTAL_URL 
-    ? 'https://api.studio.polymasterlabs.com'
-    : 'http://localhost:8787';
   const cdnUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
 
-  // Helper function to test an endpoint
-  async function testEndpoint(name: string, path: string, method: string, options: RequestInit = {}): Promise<EndpointTest> {
+  // Helper for internal tests (using c.env directly)
+  async function testInternal(name: string, path: string, test: () => Promise<string | void>): Promise<EndpointTest> {
     const testStart = Date.now();
     try {
-      const response = await fetch(`${baseUrl}${path}`, {
+      const details = await test();
+      return {
+        name,
+        path,
+        method: 'INTERNAL',
+        status: 'pass',
+        responseTime: Date.now() - testStart,
+        details: details || 'OK',
+      };
+    } catch (err) {
+      return {
+        name,
+        path,
+        method: 'INTERNAL',
+        status: 'fail',
+        responseTime: Date.now() - testStart,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  // Helper for external HTTP tests (CDN, external APIs)
+  async function testExternal(name: string, url: string, method: string, headers?: Record<string, string>): Promise<EndpointTest> {
+    const testStart = Date.now();
+    try {
+      const response = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.headers || {}),
-        },
-        ...options,
+        headers: headers || {},
       });
       
       return {
         name,
-        path,
+        path: url,
         method,
         status: response.ok ? 'pass' : 'fail',
         responseTime: Date.now() - testStart,
@@ -376,7 +397,7 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
     } catch (err) {
       return {
         name,
-        path,
+        path: url,
         method,
         status: 'fail',
         responseTime: Date.now() - testStart,
@@ -385,80 +406,71 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
     }
   }
 
-  // Helper for internal tests (using c.env directly)
-  async function testInternal(name: string, test: () => Promise<void>): Promise<EndpointTest> {
-    const testStart = Date.now();
-    try {
-      await test();
-      return {
-        name,
-        path: 'internal',
-        method: 'INTERNAL',
-        status: 'pass',
-        responseTime: Date.now() - testStart,
-      };
-    } catch (err) {
-      return {
-        name,
-        path: 'internal',
-        method: 'INTERNAL',
-        status: 'fail',
-        responseTime: Date.now() - testStart,
-        error: (err as Error).message,
-      };
-    }
-  }
-
-  // ===== 1. PUBLIC ENDPOINTS =====
-  results.push(await testEndpoint('Health Check', '/v1/health', 'GET'));
-  results.push(await testEndpoint('Vocabulary List', '/v1/vocabulary', 'GET'));
-  results.push(await testEndpoint('Vocabulary Single', '/v1/vocabulary?limit=1', 'GET'));
-  results.push(await testEndpoint('HSK1 Curriculum', '/v1/curriculum/hsk/1', 'GET'));
-
-  // ===== 2. INTERNAL SERVICE TESTS =====
-  
-  // Database tables
+  // ===== 1. DATABASE TABLES =====
   const tables = ['vocabulary', 'lessons', 'stories', 'waitlist', 'ba_user', 'lesson_blocks'];
   for (const table of tables) {
-    results.push(await testInternal(`DB Table: ${table}`, async () => {
+    results.push(await testInternal(`DB Table: ${table}`, table, async () => {
       const db = drizzle(c.env.DB);
       const result = await db.run(sql.raw(`SELECT COUNT(*) as count FROM ${table}`));
       const count = (result.results?.[0] as any)?.count;
       if (count === undefined) throw new Error('No count returned');
+      return `${count} rows`;
     }));
   }
 
+  // ===== 2. STORAGE SERVICES =====
+  
   // R2 Bucket
-  results.push(await testInternal('R2 Bucket List', async () => {
+  results.push(await testInternal('R2 Bucket Access', 'CONTENT_BUCKET', async () => {
     const list = await c.env.CONTENT_BUCKET.list({ limit: 1 });
+    return `${list.objects.length} objects`;
   }));
 
   // R2 Bucket - Check for audio folder
-  results.push(await testInternal('R2 Audio Folder', async () => {
-    const list = await c.env.CONTENT_BUCKET.list({ prefix: 'audio/', limit: 5 });
+  results.push(await testInternal('R2 Audio Folder', 'audio/*', async () => {
+    const list = await c.env.CONTENT_BUCKET.list({ prefix: 'audio/', limit: 10 });
     if (list.objects.length === 0) {
       throw new Error('No audio files found in R2');
     }
+    return `${list.objects.length}+ audio files`;
   }));
 
   // KV Store
   if (c.env.RATE_LIMIT_KV) {
-    results.push(await testInternal('KV Store', async () => {
+    results.push(await testInternal('KV Store', 'RATE_LIMIT_KV', async () => {
       await c.env.RATE_LIMIT_KV.get('health_test');
+      return 'OK';
     }));
+  } else {
+    results.push({
+      name: 'KV Store',
+      path: 'RATE_LIMIT_KV',
+      method: 'CONFIG',
+      status: 'skip',
+      details: 'Not configured',
+    });
   }
 
   // Vectorize
   if (c.env.VECTORIZE) {
-    results.push(await testInternal('Vectorize Index', async () => {
-      await c.env.VECTORIZE.describe();
+    results.push(await testInternal('Vectorize Index', 'VECTORIZE', async () => {
+      const info = await c.env.VECTORIZE.describe();
+      return `${info.vectorCount || 0} vectors`;
     }));
+  } else {
+    results.push({
+      name: 'Vectorize Index',
+      path: 'VECTORIZE',
+      method: 'CONFIG',
+      status: 'skip',
+      details: 'Not configured',
+    });
   }
 
-  // ===== 3. CDN TESTS =====
-  results.push(await testEndpoint('CDN Root', cdnUrl, 'HEAD'));
+  // ===== 3. CDN / R2 PUBLIC ACCESS =====
   
-  // Test a known audio file (if we have vocab with audio)
+  // Test CDN by fetching a known audio file directly from R2
+  let audioKey: string | null = null;
   try {
     const db = drizzle(c.env.DB);
     const vocabWithAudio = await db.run(sql`
@@ -467,31 +479,42 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
       LIMIT 1
     `);
     if (vocabWithAudio.results && vocabWithAudio.results.length > 0) {
-      const audioKey = (vocabWithAudio.results[0] as any).word_audio_r2_key;
-      if (audioKey) {
-        results.push(await testEndpoint('CDN Audio File', `${cdnUrl}/${audioKey}`, 'HEAD'));
-      }
+      audioKey = (vocabWithAudio.results[0] as any).word_audio_r2_key;
     }
   } catch {
+    // Ignore
+  }
+
+  if (audioKey) {
+    // Test if we can get the object from R2 directly
+    results.push(await testInternal('R2 Audio Object', audioKey, async () => {
+      const obj = await c.env.CONTENT_BUCKET.get(audioKey!);
+      if (!obj) throw new Error('Object not found');
+      return `${obj.size} bytes`;
+    }));
+
+    // Test CDN URL (external fetch)
+    results.push(await testExternal('CDN Audio URL', `${cdnUrl}/${audioKey}`, 'HEAD'));
+  } else {
     results.push({
-      name: 'CDN Audio File',
-      path: cdnUrl,
-      method: 'HEAD',
+      name: 'R2 Audio Object',
+      path: 'audio/*',
+      method: 'GET',
       status: 'skip',
-      details: 'No vocab with audio found',
+      details: 'No audio files in DB',
     });
   }
 
   // ===== 4. EXTERNAL API TESTS =====
   
-  // ElevenLabs API (just check if configured)
-  const elevenLabsKey = (c.env as Record<string, unknown>).ELEVENLABS_API_KEY;
+  // ElevenLabs API
+  const elevenLabsKey = (c.env as Record<string, unknown>).ELEVENLABS_API_KEY as string | undefined;
   if (elevenLabsKey) {
-    results.push(await testEndpoint(
-      'ElevenLabs Voices',
+    results.push(await testExternal(
+      'ElevenLabs API',
       'https://api.elevenlabs.io/v1/voices',
       'GET',
-      { headers: { 'xi-api-key': elevenLabsKey as string } }
+      { 'xi-api-key': elevenLabsKey }
     ));
   } else {
     results.push({
@@ -503,14 +526,25 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
     });
   }
 
-  // OpenRouter/AI API (just check if key exists)
+  // ===== 5. API KEYS CHECK =====
+  
+  // OpenRouter/AI API
   const aiKey = (c.env as Record<string, unknown>).OPENROUTER_API_KEY || (c.env as Record<string, unknown>).OPENAI_API_KEY;
   results.push({
     name: 'AI API Key',
     path: 'OPENROUTER/OPENAI',
     method: 'CONFIG',
     status: aiKey ? 'pass' : 'fail',
-    details: aiKey ? 'Configured' : 'Missing OPENROUTER_API_KEY or OPENAI_API_KEY',
+    details: aiKey ? 'Configured' : 'Missing',
+  });
+
+  // CDN Base URL config
+  results.push({
+    name: 'CDN URL Config',
+    path: 'CDN_BASE_URL',
+    method: 'CONFIG',
+    status: 'pass',
+    details: cdnUrl,
   });
 
   // ===== SUMMARY =====
