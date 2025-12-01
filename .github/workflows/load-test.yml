@@ -102,30 +102,76 @@ jobs:
           k6-version: ${{ env.K6_VERSION }}
 
       - name: Validate environment
+        id: validate
         run: |
           if [[ -z "${{ secrets.STAGING_API_URL }}" ]]; then
-            echo "❌ STAGING_API_URL secret is required!"
-            echo "Set it in GitHub repo settings → Secrets → Actions"
-            exit 1
+            echo "⚠️  STAGING_API_URL not configured - skipping k6 tests"
+            echo "To enable: Add STAGING_API_URL secret in GitHub repo settings"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Environment validated"
+            echo "Target: ${{ secrets.STAGING_API_URL }}"
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
-          echo "✅ Environment validated"
-          echo "Target: ${{ secrets.STAGING_API_URL }}"
 
       - name: Run k6 ${{ needs.setup.outputs.test_type }} test
+        id: k6_run
+        if: steps.validate.outputs.skip != 'true'
         run: |
           k6 run test/k6/${{ needs.setup.outputs.test_type }}.js \
             --out json=results.json \
-            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)"
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=summary.json
         env:
           API_URL: ${{ secrets.STAGING_API_URL }}
           TEST_USER_JWT: ${{ secrets.TEST_USER_JWT }}
 
-      - name: Upload results
+      - name: Process and upload results to R2
+        if: always() && steps.validate.outputs.skip != 'true'
+        run: |
+          # Create metadata file
+          DATE=$(date -u +"%Y-%m-%d")
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          RUN_ID="${{ github.run_id }}"
+          TEST_TYPE="${{ needs.setup.outputs.test_type }}"
+          COMMIT_SHA="${{ github.sha }}"
+          
+          # Create combined result file
+          cat > k6-result.json << EOF
+          {
+            "id": "${RUN_ID}-${TEST_TYPE}",
+            "test_type": "${TEST_TYPE}",
+            "timestamp": "${TIMESTAMP}",
+            "date": "${DATE}",
+            "commit_sha": "${COMMIT_SHA}",
+            "branch": "${{ github.ref_name }}",
+            "status": "${{ steps.k6_run.outcome }}",
+            "summary": $(cat summary.json 2>/dev/null || echo '{}'),
+            "github_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          
+          # Upload to R2 via wrangler (requires CLOUDFLARE_API_TOKEN)
+          RESULT_KEY="k6-results/${DATE}/${TEST_TYPE}-${RUN_ID}.json"
+          echo "Uploading to R2: ${RESULT_KEY}"
+          
+          # Use wrangler to upload to R2
+          npx wrangler r2 object put "hanzimaster-content/${RESULT_KEY}" \
+            --file=k6-result.json \
+            --content-type="application/json" || echo "R2 upload skipped (no credentials)"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      - name: Upload results as artifact
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.validate.outputs.skip != 'true'
         with:
           name: k6-results-${{ needs.setup.outputs.test_type }}-${{ github.run_number }}
-          path: results.json
+          path: |
+            results.json
+            summary.json
+            k6-result.json
           retention-days: 30
 
       - name: Check thresholds

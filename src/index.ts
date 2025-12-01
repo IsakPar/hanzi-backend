@@ -29,6 +29,7 @@ import announcementsRouter from './routes/announcements';
 import lessonAlternativesRouter from './routes/lesson-alternatives';
 import { aiTutorRouter } from './routes/ai-tutor';
 import healthRouter from './routes/health';
+import { adminK6Router } from './routes/admin-k6';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -107,6 +108,7 @@ app.get('/', (c) => {
 // Routes
 app.route('/v1/lessons', lessonsRouter);
 app.route('/v1/admin', adminRouter);
+app.route('/v1/admin/k6-results', adminK6Router);
 app.route('/v1/ai', aiRouter);
 app.route('/v1/models', modelsRouter);
 app.route('/v1/content', contentRouter);

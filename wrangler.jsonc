@@ -12,12 +12,6 @@
 			"database_name": "hanzimaster-db",
 			"database_id": "1efb8c59-c109-4167-92a3-39ed970cdfff",
 			"migrations_dir": "drizzle"
-		},
-		{
-			"binding": "hanzimaster_db_staging",
-			"database_name": "hanzimaster-db-staging",
-			"database_id": "e9c26998-f4dc-4e59-bdeb-ee3d28287bfc",
-			"remote": true
 		}
 	],
 	"r2_buckets": [
@@ -83,4 +77,46 @@
 	// Legacy:
 	// - ADMIN_SECRET
 	// - JWT_SECRET
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// STAGING ENVIRONMENT
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Deploy: pnpm deploy:staging
+	// URL: staging-api.polymasterlabs.com (configure in Cloudflare dashboard)
+	"env": {
+		"staging": {
+			"name": "hanzimaster-backend-staging",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "hanzimaster-db-staging",
+					"database_id": "e9c26998-f4dc-4e59-bdeb-ee3d28287bfc",
+					"migrations_dir": "drizzle"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "CONTENT_BUCKET",
+					"bucket_name": "hanzimaster-content-dev"
+				}
+			],
+			"kv_namespaces": [
+				{
+					"binding": "RATE_LIMIT_KV",
+					"id": "6602574ce47542419556293933ced954"
+				}
+			],
+			"vars": {
+				"ENVIRONMENT": "staging",
+				"MAX_REQUESTS_PER_DAY": "100",
+				"MAX_TOKENS_PER_DAY": "50000",
+				"ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:3000,https://staging.polymasterlabs.com,https://staging-api.polymasterlabs.com",
+				"DEFAULT_AI_MODEL": "gpt-5-nano",
+				"JWT_MAX_AGE": "7d",
+				"VALIDATOR_URL": "https://hanzi-vocab-val-u53gq.sevalla.app",
+				"BETTER_AUTH_URL": "https://staging-api.polymasterlabs.com",
+				"PORTAL_URL": "https://staging.polymasterlabs.com"
+			}
+		}
+	}
 }
