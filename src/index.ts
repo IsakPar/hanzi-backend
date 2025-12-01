@@ -28,6 +28,7 @@ import controlCenterRouter from './routes/control-center';
 import announcementsRouter from './routes/announcements';
 import lessonAlternativesRouter from './routes/lesson-alternatives';
 import { aiTutorRouter } from './routes/ai-tutor';
+import healthRouter from './routes/health';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -133,6 +134,7 @@ app.route('/v1/control-center', controlCenterRouter); // Content staging system
 app.route('/v1/announcements', announcementsRouter); // SDUI announcements
 app.route('/v1/lesson-alternatives', lessonAlternativesRouter); // Alternatives & connected words
 app.route('/v1/ai-tutor', aiTutorRouter); // AI Tutor lesson generation
+app.route('/v1/health', healthRouter); // Health checks and diagnostics
 
 // Export default handler with cron support
 export default {
