@@ -22,6 +22,7 @@ import {
   generateStorageKey,
 } from './metadata';
 import { importD1, getRowCounts, D1Config } from './d1';
+import { downloadFromS3, downloadFromR2, S3Config, R2Config } from './storage';
 
 // ============================================================================
 // MAIN RESTORE FUNCTION
@@ -266,26 +267,32 @@ async function downloadFromStorage(
   config: BackupConfig,
   key: string
 ): Promise<Buffer> {
-  // Try R2 first, fallback to S3
-  
   console.log(`[RESTORE] Downloading: ${key}`);
   
-  try {
-    return await downloadFromR2(config, key);
-  } catch (r2Error) {
-    console.log(`[RESTORE] R2 failed, trying S3: ${r2Error}`);
-    return await downloadFromS3(config, key);
+  // Try R2 first (hot storage), fallback to S3 (warm storage)
+  if (config.r2.access_key_id && config.r2.secret_access_key) {
+    try {
+      const r2Config: R2Config = {
+        bucket: config.r2.bucket,
+        accountId: config.r2.account_id,
+        accessKeyId: config.r2.access_key_id,
+        secretAccessKey: config.r2.secret_access_key,
+      };
+      return await downloadFromR2(r2Config, key);
+    } catch (r2Error) {
+      console.log(`[RESTORE] R2 failed, trying S3: ${r2Error}`);
+    }
   }
-}
-
-async function downloadFromR2(config: BackupConfig, key: string): Promise<Buffer> {
-  // TODO: Implement actual R2 download
-  throw new Error('R2 download not yet implemented');
-}
-
-async function downloadFromS3(config: BackupConfig, key: string): Promise<Buffer> {
-  // TODO: Implement actual S3 download
-  throw new Error('S3 download not yet implemented');
+  
+  // Fallback to S3
+  const s3Config: S3Config = {
+    bucket: config.s3.bucket,
+    region: config.s3.region,
+    accessKeyId: config.s3.access_key_id,
+    secretAccessKey: config.s3.secret_access_key,
+  };
+  
+  return downloadFromS3(s3Config, key);
 }
 
 // ============================================================================
@@ -428,17 +435,17 @@ async function main() {
     
     r2: {
       bucket: process.env.R2_BUCKET || 'hanzimaster-backups',
+      account_id: process.env.CF_ACCOUNT_ID || '',
       access_key_id: process.env.R2_ACCESS_KEY_ID || '',
       secret_access_key: process.env.R2_SECRET_ACCESS_KEY || '',
-      endpoint: process.env.R2_ENDPOINT || '',
     },
     
     s3: {
       bucket: process.env.S3_BUCKET || 'hm-prod-backups',
       region: process.env.S3_REGION || 'us-east-1',
-      access_key_id: process.env.S3_ACCESS_KEY_ID || '',
-      secret_access_key: process.env.S3_SECRET_ACCESS_KEY || '',
-      account_id: process.env.AWS_ACCOUNT_ID || '',
+      access_key_id: process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '',
+      secret_access_key: process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '',
+      aws_account_id: process.env.AWS_ACCOUNT_ID || '',
     },
     
     encryption: {

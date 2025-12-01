@@ -27,6 +27,13 @@ import {
   serializeMetadata,
 } from './metadata';
 import { exportD1, exportD1ViaApi, D1Config, D1ExportResult } from './d1';
+import { 
+  uploadToS3, 
+  uploadToR2, 
+  buildR2Manifest as buildR2ManifestFromStorage,
+  S3Config,
+  R2Config,
+} from './storage';
 
 // ============================================================================
 // MAIN BACKUP FUNCTION
@@ -129,17 +136,18 @@ export async function executeBackup(
     console.log('[BACKUP] Step 6: Uploading to R2...');
     
     const r2Key = generateStorageKey(config.environment, startedAt.toISOString(), 'd1');
-    await uploadToR2(config, r2Key, encrypted);
+    await uploadBackupToR2(config, r2Key, encrypted);
     
-    storage_locations.push({
-      provider: 'r2',
-      bucket: config.r2.bucket,
-      key: r2Key,
-      tier: 'hot',
-      uploaded_at: new Date().toISOString(),
-    });
-    
-    console.log(`[BACKUP] R2 upload complete: ${r2Key}`);
+    if (config.r2.access_key_id && config.r2.secret_access_key) {
+      storage_locations.push({
+        provider: 'r2',
+        bucket: config.r2.bucket,
+        key: r2Key,
+        tier: 'hot',
+        uploaded_at: new Date().toISOString(),
+      });
+      console.log(`[BACKUP] R2 upload complete: ${r2Key}`);
+    }
     
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 7: Upload to S3 (Warm Storage)
@@ -147,14 +155,14 @@ export async function executeBackup(
     console.log('[BACKUP] Step 7: Uploading to S3...');
     
     const s3Key = generateStorageKey(config.environment, startedAt.toISOString(), 'd1');
-    await uploadToS3(config, s3Key, encrypted);
+    await uploadBackupToS3(config, s3Key, encrypted);
     
     storage_locations.push({
       provider: 's3',
       bucket: config.s3.bucket,
       key: s3Key,
       region: config.s3.region,
-      aws_account_id: config.s3.account_id,
+      aws_account_id: config.s3.aws_account_id,
       tier: 'warm',
       uploaded_at: new Date().toISOString(),
     });
@@ -197,7 +205,7 @@ export async function executeBackup(
       started_at: startedAt,
       completed_at: completedAt,
       
-      expires_in_days: DEFAULT_RETENTION.r2_hot,
+      expires_in_days: DEFAULT_RETENTION.r2_days,
     });
     
     // ─────────────────────────────────────────────────────────────────────────
@@ -207,9 +215,10 @@ export async function executeBackup(
     
     const metadataJson = serializeMetadata(metadata);
     const metadataKey = generateMetadataKey(config.environment, startedAt.toISOString());
+    const metadataBuffer = Buffer.from(metadataJson, 'utf-8');
     
-    await uploadToR2(config, metadataKey, Buffer.from(metadataJson, 'utf-8'));
-    await uploadToS3(config, metadataKey, Buffer.from(metadataJson, 'utf-8'));
+    await uploadBackupToR2(config, metadataKey, metadataBuffer);
+    await uploadBackupToS3(config, metadataKey, metadataBuffer);
     
     console.log(`[BACKUP] Metadata stored: ${metadataKey}`);
     
@@ -295,24 +304,24 @@ async function dumpD1(config: BackupConfig): Promise<D1DumpResult> {
 // ============================================================================
 
 async function buildR2Manifest(config: BackupConfig): Promise<R2Manifest> {
-  // TODO: Implement actual R2 listing
-  // Use S3-compatible API to list objects
+  // Check if R2 credentials are configured
+  if (!config.r2.access_key_id || !config.r2.secret_access_key) {
+    console.log('[R2] No R2 credentials configured, skipping manifest');
+    return {
+      bucket: config.r2.bucket,
+      objects: [],
+      generated_at: new Date().toISOString(),
+    };
+  }
   
-  console.log('[R2] Listing objects in bucket:', config.r2.bucket);
-  
-  // Placeholder
-  const objects: R2ObjectEntry[] = [];
-  
-  // In real implementation:
-  // 1. Use S3 ListObjectsV2 API
-  // 2. Paginate through all objects
-  // 3. Record key, size, etag, last_modified
-  
-  return {
+  const r2Config: R2Config = {
     bucket: config.r2.bucket,
-    objects,
-    generated_at: new Date().toISOString(),
+    accountId: config.r2.account_id,
+    accessKeyId: config.r2.access_key_id,
+    secretAccessKey: config.r2.secret_access_key,
   };
+  
+  return buildR2ManifestFromStorage(r2Config);
 }
 
 // ============================================================================
@@ -381,39 +390,40 @@ async function getEncryptionKey(config: BackupConfig): Promise<Uint8Array> {
 // STORAGE UPLOADS
 // ============================================================================
 
-async function uploadToR2(
+async function uploadBackupToR2(
   config: BackupConfig,
   key: string,
   data: Buffer
 ): Promise<void> {
-  // Use S3-compatible API
-  const url = `${config.r2.endpoint}/${config.r2.bucket}/${key}`;
+  // Check if R2 credentials are configured
+  if (!config.r2.access_key_id || !config.r2.secret_access_key) {
+    console.log('[R2] No R2 credentials configured, skipping upload');
+    return;
+  }
   
-  // TODO: Implement actual S3 upload with signing
-  // For now, placeholder
-  console.log(`[R2] Would upload ${formatBytes(data.length)} to ${url}`);
+  const r2Config: R2Config = {
+    bucket: config.r2.bucket,
+    accountId: config.r2.account_id,
+    accessKeyId: config.r2.access_key_id,
+    secretAccessKey: config.r2.secret_access_key,
+  };
   
-  // In real implementation:
-  // 1. Create S3 client with R2 endpoint
-  // 2. Upload with proper signing
-  // 3. Verify upload succeeded
+  await uploadToR2(r2Config, key, data);
 }
 
-async function uploadToS3(
+async function uploadBackupToS3(
   config: BackupConfig,
   key: string,
   data: Buffer
 ): Promise<void> {
-  const url = `https://${config.s3.bucket}.s3.${config.s3.region}.amazonaws.com/${key}`;
+  const s3Config: S3Config = {
+    bucket: config.s3.bucket,
+    region: config.s3.region,
+    accessKeyId: config.s3.access_key_id,
+    secretAccessKey: config.s3.secret_access_key,
+  };
   
-  // TODO: Implement actual S3 upload with signing
-  // For now, placeholder
-  console.log(`[S3] Would upload ${formatBytes(data.length)} to ${url}`);
-  
-  // In real implementation:
-  // 1. Create S3 client
-  // 2. Upload with proper signing
-  // 3. Verify upload succeeded
+  await uploadToS3(s3Config, key, data);
 }
 
 // ============================================================================
@@ -466,17 +476,17 @@ async function main() {
     
     r2: {
       bucket: process.env.R2_BUCKET || 'hanzimaster-backups',
+      account_id: process.env.CF_ACCOUNT_ID || '',
       access_key_id: process.env.R2_ACCESS_KEY_ID || '',
       secret_access_key: process.env.R2_SECRET_ACCESS_KEY || '',
-      endpoint: process.env.R2_ENDPOINT || '',
     },
     
     s3: {
       bucket: process.env.S3_BUCKET || 'hm-prod-backups',
       region: process.env.S3_REGION || 'us-east-1',
-      access_key_id: process.env.S3_ACCESS_KEY_ID || '',
-      secret_access_key: process.env.S3_SECRET_ACCESS_KEY || '',
-      account_id: process.env.AWS_ACCOUNT_ID || '',
+      access_key_id: process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '',
+      secret_access_key: process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '',
+      aws_account_id: process.env.AWS_ACCOUNT_ID || '',
     },
     
     encryption: {

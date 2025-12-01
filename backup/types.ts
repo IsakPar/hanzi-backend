@@ -438,9 +438,9 @@ export interface BackupConfig {
    */
   r2: {
     bucket: string;
+    account_id: string;  // Cloudflare account ID
     access_key_id: string;
     secret_access_key: string;
-    endpoint: string;  // R2's S3-compatible endpoint
   };
 
   /**
@@ -451,7 +451,7 @@ export interface BackupConfig {
     region: string;
     access_key_id: string;
     secret_access_key: string;
-    account_id: string;
+    aws_account_id: string;
   };
 
   /**
@@ -548,8 +548,8 @@ export const BACKUP_TABLES = [
  * Default retention periods in days.
  */
 export const DEFAULT_RETENTION = {
-  r2_hot: 14,
-  s3_warm: 60,
-  s3_glacier: 365,
+  r2_days: 14,
+  s3_standard_days: 60,
+  s3_glacier_days: 365,
 } as const;
 

@@ -52,3 +52,16 @@ export {
   type D1ImportResult,
 } from './d1';
 
+// Storage operations
+export {
+  uploadToS3,
+  downloadFromS3,
+  listS3Objects,
+  uploadToR2,
+  downloadFromR2,
+  buildR2Manifest,
+  type S3Config,
+  type R2Config,
+  type S3Object,
+} from './storage';
+
