@@ -44,6 +44,9 @@ export const vocabulary = sqliteTable('vocabulary', {
   category: text('category').notNull(), 
   hskLevel: integer('hsk_level').notNull(), 
   tags: text('tags', { mode: 'json' }), 
+  // Pedagogic metadata for distractor generation
+  pos: text('pos'),         // part of speech: noun, verb, adj, etc.
+  tonePattern: text('tone_pattern'), // e.g., "1-1", "3-3", "2-4"
   // Audio and examples
   wordAudioR2Key: text('word_audio_r2_key'),
   exampleChinese: text('example_chinese'),
@@ -53,6 +56,8 @@ export const vocabulary = sqliteTable('vocabulary', {
 }, (table) => ({
   categoryIdx: index('vocab_category_idx').on(table.category),
   levelIdx: index('vocab_level_idx').on(table.hskLevel),
+  posIdx: index('vocab_pos_idx').on(table.pos),
+  toneIdx: index('vocab_tone_idx').on(table.tonePattern),
 }));
 
 // --- UNITS ---
