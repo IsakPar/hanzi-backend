@@ -7,8 +7,12 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
+import { uploadRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting to uploads
+app.use('/*', uploadRateLimit);
 
 // Require auth for all audio uploads
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));

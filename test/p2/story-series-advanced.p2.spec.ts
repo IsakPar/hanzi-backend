@@ -7,7 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P2: Story Series Advanced', () => {
@@ -19,8 +21,8 @@ describe.sequential('P2: Story Series Advanced', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -36,10 +38,7 @@ describe.sequential('P2: Story Series Advanced', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             title: 'Test Series',
             description: 'A test series',
@@ -103,10 +102,7 @@ describe.sequential('P2: Story Series Advanced', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/story-series/${seriesId}/stories`, {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ storyId }),
         }),
         ctx.env,
@@ -148,10 +144,7 @@ describe.sequential('P2: Story Series Advanced', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/story-series/${seriesId}/reorder`, {
           method: 'PUT',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ storyIds: [] }),
         }),
         ctx.env,
@@ -177,7 +170,7 @@ describe.sequential('P2: Story Series Advanced', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/story-series/${seriesId}/publish`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -196,7 +189,7 @@ describe.sequential('P2: Story Series Advanced', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/story-series/${seriesId}/unpublish`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

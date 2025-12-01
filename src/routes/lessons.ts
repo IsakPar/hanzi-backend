@@ -5,8 +5,12 @@ import { eq, asc } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { AppEnv } from '../types/app';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // 1. GET /lessons - List all published lessons
 app.get('/', async (c) => {

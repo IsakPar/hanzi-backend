@@ -144,7 +144,7 @@ export async function createExpiredSession(
 /**
  * Get headers with session cookie for authenticated requests
  */
-export function authCookieHeaders(sessionToken: string): Record<string, string> {
+export function authBearerHeaders(sessionToken: string): Record<string, string> {
   return {
     Cookie: `better-auth.session_token=${sessionToken}`,
   };
@@ -153,7 +153,7 @@ export function authCookieHeaders(sessionToken: string): Record<string, string> 
 /**
  * Get headers with session cookie and JSON content type
  */
-export function jsonAuthCookieHeaders(sessionToken: string): Record<string, string> {
+export function jsonAuthBearerHeaders(sessionToken: string): Record<string, string> {
   return {
     Cookie: `better-auth.session_token=${sessionToken}`,
     'Content-Type': 'application/json',

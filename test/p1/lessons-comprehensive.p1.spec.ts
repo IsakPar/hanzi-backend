@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestUnit, createTestLesson, createTestLessonBlock } from '../fixtures/seed-data';
 
 describe.sequential('P1: Lessons Comprehensive', () => {
@@ -22,8 +22,8 @@ describe.sequential('P1: Lessons Comprehensive', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -41,7 +41,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/lessons', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -57,7 +57,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -78,7 +78,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -93,7 +93,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ title: 'Updated Title' }),
         }),
         ctx.env,
@@ -109,7 +109,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -121,7 +121,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
     it('returns 404 for nonexistent lesson', async () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${crypto.randomUUID()}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -143,7 +143,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -204,7 +204,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,
@@ -219,7 +219,7 @@ describe.sequential('P1: Lessons Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

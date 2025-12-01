@@ -8,7 +8,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P0: Vocabulary Bulk Import', () => {
   let ctx: TestContext;
@@ -19,8 +20,8 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -36,10 +37,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               {
@@ -65,10 +63,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               { hanzi: '谢谢', pinyin: 'xiè xiè', english: 'thank you', hskLevel: 1, category: 'greetings' },
@@ -90,10 +85,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               {
@@ -126,10 +118,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json; charset=utf-8',
-          },
+          headers: { ...jsonAuthBearerHeaders(adminSession), 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
             entries: [
               { hanzi: '龙', pinyin: 'lóng', english: 'dragon', hskLevel: 2, category: 'animals' },
@@ -148,10 +137,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               { hanzi: '妈', pinyin: 'mā', english: 'mother', hskLevel: 1, category: 'family' },
@@ -180,10 +166,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ entries: [] }),
         }),
         ctx.env,
@@ -197,10 +180,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [{ hanzi: '你好' }], // Missing pinyin, english, hskLevel
           }),
@@ -216,10 +196,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               { hanzi: '测', pinyin: 'cè', english: 'test', hskLevel: 99, category: 'test' },
@@ -238,10 +215,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: 'not valid json',
         }),
         ctx.env,
@@ -279,10 +253,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${userSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({
             entries: [
               { hanzi: '好', pinyin: 'hǎo', english: 'good', hskLevel: 1, category: 'adjectives' },
@@ -317,10 +288,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ entries }),
         }),
         ctx.env,
@@ -342,10 +310,7 @@ describe.sequential('P0: Vocabulary Bulk Import', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             entries: [
               { hanzi: '新', pinyin: 'xīn', english: 'new', hskLevel: 1, category: 'adjectives' },

@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P0: Security Hardening', () => {
   let ctx: TestContext;
@@ -21,8 +21,8 @@ describe.sequential('P0: Security Hardening', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -39,7 +39,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary?search=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -60,7 +60,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons?hsk_level=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -75,7 +75,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -90,7 +90,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons?order_by=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -104,7 +104,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary?limit=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -124,7 +124,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary?search=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -145,7 +145,7 @@ describe.sequential('P0: Security Hardening', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             hanzi: '测试',
             pinyin: 'cèshì',
@@ -166,7 +166,7 @@ describe.sequential('P0: Security Hardening', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary?search=${encodeURIComponent(malicious)}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -198,7 +198,7 @@ describe.sequential('P0: Security Hardening', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
           headers: {
-            ...authCookieHeaders(userSession),
+            ...authBearerHeaders(userSession),
             'Origin': 'https://portal.hanzimaster.com',
           },
         }),
@@ -222,7 +222,7 @@ describe.sequential('P0: Security Hardening', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify(hugePayload),
         }),
         ctx.env,
@@ -244,7 +244,7 @@ describe.sequential('P0: Security Hardening', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify(normalPayload),
         }),
         ctx.env,
@@ -260,7 +260,7 @@ describe.sequential('P0: Security Hardening', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({ messages: hugeArray }),
         }),
         ctx.env,

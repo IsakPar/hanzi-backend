@@ -34,6 +34,7 @@ import { logWithContext } from './utils/logger';
 import { handleCleanupCron } from './crons/cleanup-uploads';
 import { handleEngagementAggregation } from './crons/engagement-aggregation';
 import { handleBackupCron } from './crons/backup-critical-data';
+import { handleRefreshTokenCleanup } from './crons/cleanup-refresh-tokens';
 
 const app = new Hono<AppEnv>();
 
@@ -169,6 +170,22 @@ export default {
           logWithContext('info', 'cron.backup_complete', { meta: result });
         }).catch((err) => {
           logWithContext('error', 'cron.backup_failed', { 
+            meta: { error: err instanceof Error ? err.message : String(err) } 
+          });
+        })
+      );
+      return;
+    }
+    
+    // Refresh token cleanup - every hour
+    if (cron === '0 * * * *') {
+      ctx.waitUntil(
+        handleRefreshTokenCleanup(env.DB).then((result) => {
+          if (result.deleted > 0) {
+            logWithContext('info', 'cron.refresh_token_cleanup_complete', { meta: result });
+          }
+        }).catch((err) => {
+          logWithContext('error', 'cron.refresh_token_cleanup_failed', { 
             meta: { error: err instanceof Error ? err.message : String(err) } 
           });
         })

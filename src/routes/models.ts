@@ -4,8 +4,12 @@ import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { ModelManagerService } from '../services/model-manager';
 import type { AppEnv } from '../types/app';
+import { adminRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', adminRateLimit);
 
 // Protect all routes
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));

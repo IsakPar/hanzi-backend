@@ -19,6 +19,7 @@
 import { Hono } from 'hono';
 import { jwtAuthMiddleware } from '../../middleware/jwt-auth';
 import type { AppEnv } from '../../types/app';
+import { apiRateLimit } from '../../middleware/rate-limit';
 
 // Sub-routers
 import storiesCrud from './stories-crud';
@@ -29,6 +30,9 @@ import storiesImport from './stories-import';
 import storiesAI from './stories-ai';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // All stories endpoints require admin auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));

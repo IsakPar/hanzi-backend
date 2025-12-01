@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Control Center API - High Priority', () => {
   let ctx: TestContext;
@@ -30,11 +30,11 @@ describe.sequential('Control Center API - High Priority', () => {
 
   describe('Content Pipeline', () => {
     it('GET /control-center/content returns pipeline overview', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -44,11 +44,11 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('requires admin for content pipeline', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -58,12 +58,12 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('PUT /control-center/content/:id/status updates status', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content/test-id/status', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ status: 'staging' }),
         }),
         ctx.env,
@@ -80,11 +80,11 @@ describe.sequential('Control Center API - High Priority', () => {
 
   describe('Test Devices', () => {
     it('GET /control-center/test-devices lists devices', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -94,12 +94,12 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('POST /control-center/test-devices adds device', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             deviceId: 'test-device-123',
             name: 'Test iPhone',
@@ -113,12 +113,12 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('DELETE /control-center/test-devices/:id removes device', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices/test-id', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -144,11 +144,11 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('GET /admin/announcements lists all (admin)', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/announcements', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -158,12 +158,12 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('POST /admin/announcements creates announcement', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/announcements', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             title: 'Test Announcement',
             message: 'This is a test',
@@ -178,12 +178,12 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('DELETE /admin/announcements/:id removes', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/announcements/test-id', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -199,11 +199,11 @@ describe.sequential('Control Center API - High Priority', () => {
 
   describe('Announcement Templates', () => {
     it('GET /announcements/templates lists templates', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/announcements/templates', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -219,11 +219,11 @@ describe.sequential('Control Center API - High Priority', () => {
 
   describe('AI Usage Tracking', () => {
     it('GET /admin/ai-usage/summary returns summary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/summary', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -233,11 +233,11 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('GET /admin/ai-usage/daily returns daily stats', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/daily', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -247,11 +247,11 @@ describe.sequential('Control Center API - High Priority', () => {
     });
 
     it('requires admin for AI usage', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/summary', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext

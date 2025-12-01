@@ -11,12 +11,27 @@ import { Hono } from 'hono';
 import { eq, asc, and } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
-import { lessons, vocabulary, curriculumVersion, stories, storySentences, contentLibrary } from '../schema';
+import { 
+  lessons, 
+  vocabulary, 
+  curriculumVersion, 
+  stories, 
+  storySentences, 
+  contentLibrary,
+  lessonBlocks,
+  lessonBlockSlots,
+  slotAlternatives,
+  blockConnectedWords,
+} from '../schema';
 import { drizzle } from 'drizzle-orm/d1';
 import { createHash } from 'crypto';
 import { ChineseTokenizer, type Token } from '../utils/tokenizer';
+import { publicRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting (public curriculum endpoints)
+app.use('/*', publicRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -535,6 +550,292 @@ app.get('/full-export/version', async (c) => {
     vocabCount: vocabCount.length,
     lessonCount: lessonCount.length,
     storyCount: storyCount.length,
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// HSK LEVEL DOWNLOAD (for mobile app offline mode)
+// ═══════════════════════════════════════════════════════════
+
+interface VocabDownload {
+  id: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  category: string;
+  hskLevel: number;
+  introLessonIndex: number;  // Derived: first lesson number where word appears
+  wordAudioR2Key: string | null;
+  exampleChinese: string | null;
+  examplePinyin: string | null;
+  exampleEnglish: string | null;
+  exampleAudioR2Key: string | null;
+}
+
+// Practice data types for lesson alternatives
+interface SlotDownload {
+  wordId: string;
+  hanzi: string;
+  position: number;
+  isFocus: boolean;
+  alternatives: string[];  // Word IDs of approved alternatives
+}
+
+interface LessonPracticeData {
+  slots: SlotDownload[];
+  connectedWords: string[];  // Word IDs of approved connected words
+}
+
+interface LessonDownload {
+  id: string;
+  lessonNumber: number;
+  title: string;
+  description: string | null;
+  targetVocabulary: string[];  // Word IDs introduced in this lesson
+  practiceData?: LessonPracticeData;  // Slots with alternatives + connected words
+}
+
+interface HskLevelDownload {
+  hskLevel: number;
+  contentVersion: string;
+  schemaVersion: number;
+  downloadedAt: string;
+  vocabulary: VocabDownload[];
+  lessons: LessonDownload[];
+  stats: {
+    totalWords: number;
+    totalLessons: number;
+  };
+}
+
+/**
+ * GET /v1/curriculum/hsk/:level/download
+ * Download complete HSK level for offline use
+ * Returns all vocabulary and lessons for that level
+ */
+app.get('/hsk/:level/download', async (c) => {
+  const db = drizzle(c.env.DB);
+  const level = parseInt(c.req.param('level'));
+
+  if (isNaN(level) || level < 1 || level > 9) {
+    return c.json({ error: 'Invalid HSK level. Must be 1-9.' }, 400);
+  }
+
+  // 1. Get all published lessons for this HSK level
+  const levelLessons = await db
+    .select({
+      id: lessons.id,
+      lessonNumber: lessons.lessonNumber,
+      title: lessons.title,
+      description: lessons.description,
+      targetVocabulary: lessons.targetVocabulary,
+    })
+    .from(lessons)
+    .where(and(
+      eq(lessons.hskLevel, level),
+      eq(lessons.isPublished, true)
+    ))
+    .orderBy(asc(lessons.lessonNumber));
+
+  // 2. Build word -> introLessonIndex mapping from targetVocabulary
+  const wordIntroLesson = new Map<string, number>();
+  for (const lesson of levelLessons) {
+    const targetVocab = (lesson.targetVocabulary as string[]) || [];
+    for (const vocabId of targetVocab) {
+      // Only record first appearance
+      if (!wordIntroLesson.has(vocabId)) {
+        wordIntroLesson.set(vocabId, lesson.lessonNumber);
+      }
+    }
+  }
+
+  // 3. Get all vocabulary for this HSK level
+  const levelVocab = await db
+    .select({
+      id: vocabulary.id,
+      hanzi: vocabulary.hanzi,
+      pinyin: vocabulary.pinyin,
+      english: vocabulary.english,
+      category: vocabulary.category,
+      hskLevel: vocabulary.hskLevel,
+      wordAudioR2Key: vocabulary.wordAudioR2Key,
+      exampleChinese: vocabulary.exampleChinese,
+      examplePinyin: vocabulary.examplePinyin,
+      exampleEnglish: vocabulary.exampleEnglish,
+      exampleAudioR2Key: vocabulary.exampleAudioR2Key,
+    })
+    .from(vocabulary)
+    .where(eq(vocabulary.hskLevel, level))
+    .orderBy(asc(vocabulary.hanzi));
+
+  // 4. Enrich vocabulary with introLessonIndex
+  const vocabDownload: VocabDownload[] = levelVocab.map(v => ({
+    id: v.id,
+    hanzi: v.hanzi,
+    pinyin: v.pinyin,
+    english: v.english,
+    category: v.category || 'general',
+    hskLevel: v.hskLevel,
+    introLessonIndex: wordIntroLesson.get(v.id) ?? 999,  // 999 = not in any lesson yet
+    wordAudioR2Key: v.wordAudioR2Key,
+    exampleChinese: v.exampleChinese,
+    examplePinyin: v.examplePinyin,
+    exampleEnglish: v.exampleEnglish,
+    exampleAudioR2Key: v.exampleAudioR2Key,
+  }));
+
+  // 5. Fetch practice data (slots, alternatives, connected words) for each lesson
+  const lessonsDownload: LessonDownload[] = [];
+  
+  for (const lesson of levelLessons) {
+    // Get all blocks for this lesson
+    const blocks = await db
+      .select({ id: lessonBlocks.id })
+      .from(lessonBlocks)
+      .where(eq(lessonBlocks.lessonId, lesson.id));
+    
+    const blockIds = blocks.map(b => b.id);
+    
+    // Get slots for all blocks
+    let allSlots: SlotDownload[] = [];
+    let allConnectedWords: string[] = [];
+    
+    if (blockIds.length > 0) {
+      // For each block, get slots with their alternatives
+      for (const blockId of blockIds) {
+        // Get slots for this block
+        const slots = await db
+          .select({
+            id: lessonBlockSlots.id,
+            wordId: lessonBlockSlots.wordId,
+            hanzi: lessonBlockSlots.hanzi,
+            position: lessonBlockSlots.position,
+            isFocus: lessonBlockSlots.isFocus,
+          })
+          .from(lessonBlockSlots)
+          .where(eq(lessonBlockSlots.blockId, blockId))
+          .orderBy(asc(lessonBlockSlots.position));
+        
+        // For each slot, get approved alternatives
+        for (const slot of slots) {
+          const alternatives = await db
+            .select({ wordId: slotAlternatives.wordId })
+            .from(slotAlternatives)
+            .where(and(
+              eq(slotAlternatives.slotId, slot.id),
+              eq(slotAlternatives.isApproved, true)
+            ));
+          
+          allSlots.push({
+            wordId: slot.wordId,
+            hanzi: slot.hanzi,
+            position: slot.position,
+            isFocus: slot.isFocus || false,
+            alternatives: alternatives.map(a => a.wordId),
+          });
+        }
+        
+        // Get connected words for this block
+        const connected = await db
+          .select({ wordId: blockConnectedWords.wordId })
+          .from(blockConnectedWords)
+          .where(and(
+            eq(blockConnectedWords.blockId, blockId),
+            eq(blockConnectedWords.isApproved, true)
+          ));
+        
+        allConnectedWords.push(...connected.map(c => c.wordId));
+      }
+    }
+    
+    // Dedupe connected words
+    const uniqueConnectedWords = [...new Set(allConnectedWords)];
+    
+    // Build lesson download object
+    const lessonDownload: LessonDownload = {
+      id: lesson.id,
+      lessonNumber: lesson.lessonNumber,
+      title: lesson.title,
+      description: lesson.description,
+      targetVocabulary: (lesson.targetVocabulary as string[]) || [],
+    };
+    
+    // Only add practiceData if there's actual data
+    if (allSlots.length > 0 || uniqueConnectedWords.length > 0) {
+      lessonDownload.practiceData = {
+        slots: allSlots,
+        connectedWords: uniqueConnectedWords,
+      };
+    }
+    
+    lessonsDownload.push(lessonDownload);
+  }
+
+  // 6. Generate content version hash
+  const hashInput = JSON.stringify({
+    level,
+    vocabCount: vocabDownload.length,
+    lessonCount: lessonsDownload.length,
+    vocabIds: vocabDownload.map(v => v.id).sort(),
+    lessonIds: lessonsDownload.map(l => l.id).sort(),
+  });
+  const contentVersion = createHash('md5').update(hashInput).digest('hex').slice(0, 16);
+
+  const download: HskLevelDownload = {
+    hskLevel: level,
+    contentVersion,
+    schemaVersion: 1,
+    downloadedAt: new Date().toISOString(),
+    vocabulary: vocabDownload,
+    lessons: lessonsDownload,
+    stats: {
+      totalWords: vocabDownload.length,
+      totalLessons: lessonsDownload.length,
+    },
+  };
+
+  return c.json(download);
+});
+
+/**
+ * GET /v1/curriculum/hsk/:level/version
+ * Quick version check for HSK level (avoids full download if unchanged)
+ */
+app.get('/hsk/:level/version', async (c) => {
+  const db = drizzle(c.env.DB);
+  const level = parseInt(c.req.param('level'));
+
+  if (isNaN(level) || level < 1 || level > 9) {
+    return c.json({ error: 'Invalid HSK level. Must be 1-9.' }, 400);
+  }
+
+  // Quick counts
+  const vocabCount = await db
+    .select({ id: vocabulary.id })
+    .from(vocabulary)
+    .where(eq(vocabulary.hskLevel, level));
+
+  const lessonCount = await db
+    .select({ id: lessons.id })
+    .from(lessons)
+    .where(and(
+      eq(lessons.hskLevel, level),
+      eq(lessons.isPublished, true)
+    ));
+
+  // Generate version hash
+  const hashInput = JSON.stringify({
+    level,
+    vocabCount: vocabCount.length,
+    lessonCount: lessonCount.length,
+  });
+  const contentVersion = createHash('md5').update(hashInput).digest('hex').slice(0, 16);
+
+  return c.json({
+    hskLevel: level,
+    contentVersion,
+    vocabCount: vocabCount.length,
+    lessonCount: lessonCount.length,
   });
 });
 

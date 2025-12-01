@@ -10,8 +10,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 const baseUrl = 'http://localhost/v1/content';
 
@@ -36,7 +36,7 @@ async function uploadDraftContent(
   const res = await ctx.app.fetch(
     new Request(`${baseUrl}/admin/upload`, {
       method: 'POST',
-      headers: authCookieHeaders(sessionToken),
+      headers: authBearerHeaders(sessionToken),
       body: form,
     }),
     ctx.env,
@@ -53,7 +53,7 @@ async function publishContent(ctx: TestContext, sessionToken: string, contentId:
     new Request(`${baseUrl}/admin/library/${contentId}`, {
       method: 'PUT',
       headers: {
-        ...authCookieHeaders(sessionToken),
+        ...authBearerHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ is_published: true }),
@@ -76,7 +76,7 @@ describe.sequential('Content routes', () => {
   });
 
   it('allows admins to upload and publish content, exposing it publicly', async () => {
-    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
     const draft = await uploadDraftContent(ctx, sessionToken);
     await publishContent(ctx, sessionToken, draft.id);
 
@@ -97,7 +97,7 @@ describe.sequential('Content routes', () => {
   });
 
   it('rejects empty uploads with a 400 status', async () => {
-    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
     const form = new FormData();
     form.set('file', new File([], 'empty.pdf', { type: 'application/pdf' }));
     form.set(
@@ -112,7 +112,7 @@ describe.sequential('Content routes', () => {
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/admin/upload`, {
         method: 'POST',
-        headers: authCookieHeaders(sessionToken),
+        headers: authBearerHeaders(sessionToken),
         body: form,
       }),
       ctx.env,
@@ -126,15 +126,15 @@ describe.sequential('Content routes', () => {
 
   it('allows authenticated users to toggle favorites and updates counts', async () => {
     const admin = await createAuthenticatedAdmin(ctx.db);
-    const content = await uploadDraftContent(ctx, admin.sessionToken, { title: 'Favorite Ready' });
-    await publishContent(ctx, admin.sessionToken, content.id);
+    const content = await uploadDraftContent(ctx, admin.accessToken, { title: 'Favorite Ready' });
+    await publishContent(ctx, admin.accessToken, content.id);
 
-    const { sessionToken: userToken, user } = await createAuthenticatedUser(ctx.db);
+    const { accessToken: userToken, user } = await createAuthenticatedUser(ctx.db);
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/favorite/${content.id}`, {
         method: 'POST',
-        headers: authCookieHeaders(userToken),
+        headers: authBearerHeaders(userToken),
       }),
       ctx.env,
       executionContext
@@ -153,16 +153,16 @@ describe.sequential('Content routes', () => {
 
   it('records user progress updates via progress endpoint', async () => {
     const admin = await createAuthenticatedAdmin(ctx.db);
-    const content = await uploadDraftContent(ctx, admin.sessionToken, { title: 'Progress Lesson' });
-    await publishContent(ctx, admin.sessionToken, content.id);
+    const content = await uploadDraftContent(ctx, admin.accessToken, { title: 'Progress Lesson' });
+    await publishContent(ctx, admin.accessToken, content.id);
 
-    const { sessionToken: userToken, user } = await createAuthenticatedUser(ctx.db);
+    const { accessToken: userToken, user } = await createAuthenticatedUser(ctx.db);
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/progress/${content.id}`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(userToken),
+          ...authBearerHeaders(userToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

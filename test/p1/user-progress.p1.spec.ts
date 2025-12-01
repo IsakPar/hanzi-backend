@@ -7,9 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createTestUser, createUserProgress } from '../fixtures/seed-data';
 
 describe.sequential('P1: User Progress', () => {
@@ -22,8 +22,8 @@ describe.sequential('P1: User Progress', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const userAuth = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = userAuth.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = userAuth.accessToken;
     userId = userAuth.user.id;
   });
 
@@ -135,7 +135,7 @@ describe.sequential('P1: User Progress', () => {
     it('user can get own progress', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me/progress', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -150,7 +150,7 @@ describe.sequential('P1: User Progress', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}/progress`, {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({ status: 'started' }),
         }),
         ctx.env,

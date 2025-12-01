@@ -7,8 +7,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createTestLesson } from '../fixtures/seed-data';
 
 describe.sequential('P2: Connected Words', () => {
@@ -20,8 +20,8 @@ describe.sequential('P2: Connected Words', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -34,7 +34,7 @@ describe.sequential('P2: Connected Words', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}/connected-words`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -77,7 +77,7 @@ describe.sequential('P2: Connected Words', () => {
     it('user smart track endpoint exists', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me/smart-track', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -89,7 +89,7 @@ describe.sequential('P2: Connected Words', () => {
     it('smart track includes unlocked words', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me/smart-track/unlocked', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

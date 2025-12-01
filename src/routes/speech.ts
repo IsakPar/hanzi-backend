@@ -5,8 +5,12 @@ import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { AnalyticsService } from '../services/analytics';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
+import { aiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting to speech endpoints (ElevenLabs costs $$)
+app.use('/*', aiRateLimit);
 
 // All speech endpoints require admin auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));

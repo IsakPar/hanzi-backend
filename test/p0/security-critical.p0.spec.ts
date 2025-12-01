@@ -9,9 +9,9 @@ import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
   createBetterAuthUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P0: Security Critical', () => {
   let ctx: TestContext;
@@ -22,8 +22,8 @@ describe.sequential('P0: Security Critical', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -48,7 +48,7 @@ describe.sequential('P0: Security Critical', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${expiredToken}` },
+          headers: { 'Authorization': `Bearer ${expiredToken}` },
         }),
         ctx.env,
         executionContext
@@ -57,10 +57,10 @@ describe.sequential('P0: Security Critical', () => {
       expect(res.status).toBe(401);
     });
 
-    it('invalid session token format is rejected', async () => {
+    it('invalid token format is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': 'better-auth.session_token=malformed-token' },
+          headers: { 'Authorization': 'Bearer malformed-token' },
         }),
         ctx.env,
         executionContext
@@ -69,10 +69,10 @@ describe.sequential('P0: Security Critical', () => {
       expect(res.status).toBe(401);
     });
 
-    it('empty session token is rejected', async () => {
+    it('empty token is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': 'better-auth.session_token=' },
+          headers: { 'Authorization': 'Bearer ' },
         }),
         ctx.env,
         executionContext
@@ -81,7 +81,7 @@ describe.sequential('P0: Security Critical', () => {
       expect(res.status).toBe(401);
     });
 
-    it('missing cookie header is rejected', async () => {
+    it('missing Authorization header is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me'),
         ctx.env,
@@ -106,7 +106,7 @@ describe.sequential('P0: Security Critical', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${token}` },
+          headers: { 'Authorization': `Bearer ${token}` },
         }),
         ctx.env,
         executionContext
@@ -132,7 +132,7 @@ describe.sequential('P0: Security Critical', () => {
       for (const endpoint of endpoints) {
         const res = await ctx.app.fetch(
           new Request(`http://localhost${endpoint}`, {
-            headers: authCookieHeaders(userSession),
+            headers: authBearerHeaders(userSession),
           }),
           ctx.env,
           executionContext
@@ -148,7 +148,7 @@ describe.sequential('P0: Security Critical', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/admin/users/${otherUser.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({ tier: 'pro' }),
         }),
         ctx.env,
@@ -162,7 +162,7 @@ describe.sequential('P0: Security Critical', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({ role: 'admin' }),
         }),
         ctx.env,
@@ -181,7 +181,7 @@ describe.sequential('P0: Security Critical', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({ tier: 'pro' }),
         }),
         ctx.env,
@@ -204,7 +204,7 @@ describe.sequential('P0: Security Critical', () => {
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
           headers: {
-            ...jsonAuthCookieHeaders(userSession),
+            ...jsonAuthBearerHeaders(userSession),
             'X-Forwarded-For': '1.2.3.4',
           },
           body: JSON.stringify({ messages: [{ role: 'user', content: 'test' }] }),

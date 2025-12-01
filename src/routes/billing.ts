@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types/app';
 import type { D1Database } from '@cloudflare/workers-types';
 import { logWithContext } from '../utils/logger';
+import { webhookRateLimit } from '../middleware/rate-limit';
 
 const billingRouter = new Hono<AppEnv>();
+
+// Apply rate limiting to webhook endpoints
+billingRouter.use('/*', webhookRateLimit);
 
 // --- TYPE DEFINITIONS ---
 

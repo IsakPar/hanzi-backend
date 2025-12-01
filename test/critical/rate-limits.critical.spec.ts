@@ -14,10 +14,10 @@ import {
   createAuthenticatedUser,
   createBetterAuthUser,
   createBetterAuthSession,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
   updateUserTier,
-} from '../fixtures/better-auth-helpers';
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Rate Limits Critical Path', () => {
   let ctx: TestContext;
@@ -45,11 +45,11 @@ describe.sequential('Rate Limits Critical Path', () => {
 
   describe('Tier Limits CRUD', () => {
     it('GET /admin/tier-limits returns all tier limits', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -61,12 +61,12 @@ describe.sequential('Rate Limits Critical Path', () => {
     });
 
     it('PUT /admin/tier-limits/:tier updates limits', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/free', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             requestsPerDay: 20,
             tokensPerDay: 10000,
@@ -91,12 +91,12 @@ describe.sequential('Rate Limits Critical Path', () => {
     });
 
     it('PUT rejects invalid tier', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/invalid_tier', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ requestsPerDay: 10 }),
         }),
         ctx.env,
@@ -107,7 +107,7 @@ describe.sequential('Rate Limits Critical Path', () => {
     });
 
     it('POST /admin/tier-limits/reset restores defaults', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       // First modify
       await ctx.db.prepare('UPDATE tier_limits SET requests_per_day = 999 WHERE tier = ?')
@@ -117,7 +117,7 @@ describe.sequential('Rate Limits Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/reset', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -134,11 +134,11 @@ describe.sequential('Rate Limits Critical Path', () => {
     });
 
     it('rejects non-admin access to tier limits', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext

@@ -12,8 +12,12 @@ import { nanoid } from 'nanoid';
 import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { announcements, announcementDismissals, announcementTemplates } from '../schema';
+import { publicRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting (public endpoints)
+app.use('/*', publicRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // TYPES

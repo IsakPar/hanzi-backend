@@ -7,7 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P2: Unit Management', () => {
@@ -19,8 +21,8 @@ describe.sequential('P2: Unit Management', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -36,10 +38,7 @@ describe.sequential('P2: Unit Management', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             title: 'Unit 1',
             description: 'First unit',
@@ -57,7 +56,7 @@ describe.sequential('P2: Unit Management', () => {
     it('can list all units', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -75,7 +74,7 @@ describe.sequential('P2: Unit Management', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}`, {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -94,10 +93,7 @@ describe.sequential('P2: Unit Management', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}`, {
           method: 'PUT',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ title: 'Updated Unit' }),
         }),
         ctx.env,
@@ -117,7 +113,7 @@ describe.sequential('P2: Unit Management', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}`, {
           method: 'DELETE',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -141,7 +137,7 @@ describe.sequential('P2: Unit Management', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}/lessons`, {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -166,7 +162,7 @@ describe.sequential('P2: Unit Management', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}/lessons`, {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -185,10 +181,7 @@ describe.sequential('P2: Unit Management', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/reorder', {
           method: 'PUT',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ unitIds: [] }),
         }),
         ctx.env,
@@ -214,7 +207,7 @@ describe.sequential('P2: Unit Management', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}/publish`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -232,7 +225,7 @@ describe.sequential('P2: Unit Management', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unitId}`, {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -251,7 +244,7 @@ describe.sequential('P2: Unit Management', () => {
     it('can filter by HSK level', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -263,7 +256,7 @@ describe.sequential('P2: Unit Management', () => {
     it('can filter by published status', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?is_published=true', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

@@ -8,7 +8,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P0: Image Uploads (Story Cover)', () => {
@@ -21,8 +22,8 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
     
     // Create a test story
     testStoryId = nanoid();
@@ -76,7 +77,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -94,7 +95,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -111,7 +112,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -134,7 +135,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -153,7 +154,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -176,7 +177,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -195,7 +196,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -211,7 +212,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${testStoryId}/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -258,7 +259,7 @@ describe.sequential('P0: Image Uploads (Story Cover)', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/non-existent-id/cover`, {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,

@@ -10,8 +10,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 const baseUrl = 'http://localhost/v1/ai/prompts';
 
@@ -27,13 +27,13 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('allows admins to create and promote prompt templates', async () => {
-    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
     
     const createRes = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(sessionToken),
+          ...authBearerHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -51,7 +51,7 @@ describe.sequential('Prompt routes', () => {
       new Request(`${baseUrl}/integration_lesson/promote`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(sessionToken),
+          ...authBearerHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -67,7 +67,7 @@ describe.sequential('Prompt routes', () => {
 
     const versionsRes = await ctx.app.fetch(
       new Request(`${baseUrl}/integration_lesson/versions`, {
-        headers: authCookieHeaders(sessionToken),
+        headers: authBearerHeaders(sessionToken),
       }),
       ctx.env,
       executionContext
@@ -81,13 +81,13 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('rejects non-admin users for prompt mutations', async () => {
-    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
     
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(sessionToken),
+          ...authBearerHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -103,14 +103,14 @@ describe.sequential('Prompt routes', () => {
   });
 
   it('records analytics events on draft creation', async () => {
-    const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
     const slug = 'analytics_check';
 
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(sessionToken),
+          ...authBearerHeaders(sessionToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

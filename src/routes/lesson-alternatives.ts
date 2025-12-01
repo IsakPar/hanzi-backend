@@ -5,8 +5,12 @@ import { nanoid } from 'nanoid';
 import * as schema from '../schema';
 import { AppBindings } from '../types/app';
 import { VectorizeService } from '../services/vectorize';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<{ Bindings: AppBindings }>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // SIMPLE WORD SUGGESTIONS (for inline [+] button)

@@ -8,8 +8,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import {
   createTestUnit,
   createTestLesson,
@@ -29,8 +29,8 @@ describe.sequential('P1: Data Integrity Deep', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
     userId = user.user.id;
   });
 
@@ -288,7 +288,7 @@ describe.sequential('P1: Data Integrity Deep', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

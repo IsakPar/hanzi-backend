@@ -21,8 +21,12 @@ import {
   OPENROUTER_MODELS,
   getProviders,
 } from '../services/openrouter-client';
+import { aiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting (AI generation is expensive)
+app.use('/*', aiRateLimit);
 
 // Auth required - admin only
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));

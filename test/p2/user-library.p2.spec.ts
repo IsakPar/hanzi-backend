@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createTestLesson, createTestStory } from '../fixtures/seed-data';
 
 describe.sequential('P2: User Library', () => {
@@ -19,7 +19,7 @@ describe.sequential('P2: User Library', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const userAuth = await createAuthenticatedUser(ctx.db);
-    userSession = userAuth.sessionToken;
+    userSession = userAuth.accessToken;
     userId = userAuth.user.id;
   });
 
@@ -31,7 +31,7 @@ describe.sequential('P2: User Library', () => {
     it('user can get own library', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me/library', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -57,7 +57,7 @@ describe.sequential('P2: User Library', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me/library', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({
             itemType: 'vocabulary',
             itemId: vocab.id,

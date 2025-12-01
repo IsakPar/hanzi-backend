@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson } from '../fixtures/seed-data';
 
 describe.sequential('P0: Tier Access Control', () => {
@@ -20,7 +21,7 @@ describe.sequential('P0: Tier Access Control', () => {
     
     // Create free user
     const freeAuth = await createAuthenticatedUser(ctx.db);
-    freeUserSession = freeAuth.sessionToken;
+    freeUserSession = freeAuth.accessToken;
   });
 
   afterEach(async () => {
@@ -76,7 +77,7 @@ describe.sequential('P0: Tier Access Control', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
-          headers: authCookieHeaders(freeUserSession),
+          headers: authBearerHeaders(freeUserSession),
         }),
         ctx.env,
         executionContext
@@ -132,10 +133,7 @@ describe.sequential('P0: Tier Access Control', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${freeUserSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(freeUserSession),
           body: JSON.stringify({
             messages: [{ role: 'user', content: '你好' }],
           }),

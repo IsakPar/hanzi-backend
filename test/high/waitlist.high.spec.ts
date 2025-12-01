@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Waitlist API - High Priority', () => {
   let ctx: TestContext;
@@ -125,11 +125,11 @@ describe.sequential('Waitlist API - High Priority', () => {
     });
 
     it('GET /admin/waitlist lists entries', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/waitlist', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -139,11 +139,11 @@ describe.sequential('Waitlist API - High Priority', () => {
     });
 
     it('requires admin for waitlist listing', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/waitlist', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -153,11 +153,11 @@ describe.sequential('Waitlist API - High Priority', () => {
     });
 
     it('supports pagination', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/waitlist?limit=10&offset=0', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -167,12 +167,12 @@ describe.sequential('Waitlist API - High Priority', () => {
     });
 
     it('DELETE /admin/waitlist/:id removes entry', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/waitlist/wl-1', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -188,11 +188,11 @@ describe.sequential('Waitlist API - High Priority', () => {
 
   describe('Waitlist Stats', () => {
     it('GET /admin/waitlist/stats returns count', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/waitlist/stats', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext

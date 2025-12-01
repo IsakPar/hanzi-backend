@@ -7,8 +7,12 @@ import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
 import { tierLimits } from '../schema';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const usersRouter = new Hono<AppEnv>();
+
+// Apply rate limiting
+usersRouter.use('/*', apiRateLimit);
 
 // Validation schema for profile updates
 const updateProfileSchema = z.object({

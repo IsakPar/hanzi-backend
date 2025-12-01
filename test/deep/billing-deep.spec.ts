@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createBetterAuthUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Billing Deep Edge Cases', () => {
   let ctx: TestContext;
@@ -397,12 +397,12 @@ describe.sequential('Billing Deep Edge Cases', () => {
 
   describe('Admin Promo Grants', () => {
     it('admin can grant premium access', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/subscriptions/grant-promo', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             userId: testUserId,
             tier: 'premium',
@@ -417,12 +417,12 @@ describe.sequential('Billing Deep Edge Cases', () => {
     });
 
     it('admin can grant pro access', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/subscriptions/grant-promo', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             userId: testUserId,
             tier: 'pro',

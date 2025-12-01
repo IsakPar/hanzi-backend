@@ -7,7 +7,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 import { createHmac } from 'crypto';
 
@@ -18,7 +19,7 @@ describe.sequential('P0: Advanced Billing', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminSession = admin.sessionToken;
+    adminSession = admin.accessToken;
   });
 
   afterEach(async () => {
@@ -160,7 +161,7 @@ describe.sequential('P0: Advanced Billing', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders(user.accessToken),
         }),
         ctx.env,
         executionContext
@@ -175,7 +176,7 @@ describe.sequential('P0: Advanced Billing', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders(user.accessToken),
         }),
         ctx.env,
         executionContext
@@ -213,7 +214,7 @@ describe.sequential('P0: Advanced Billing', () => {
     it('admin can view subscription stats', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/subscriptions', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -225,7 +226,7 @@ describe.sequential('P0: Advanced Billing', () => {
     it('admin can view revenue stats', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/revenue', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestUser } from '../fixtures/seed-data';
 
 describe.sequential('P1: AI Features', () => {
@@ -22,8 +22,8 @@ describe.sequential('P1: AI Features', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -55,7 +55,7 @@ describe.sequential('P1: AI Features', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({
             messages: [{ role: 'user', content: 'Hello' }],
           }),
@@ -77,7 +77,7 @@ describe.sequential('P1: AI Features', () => {
     it('admin can list prompts', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -89,7 +89,7 @@ describe.sequential('P1: AI Features', () => {
     it('user cannot manage prompts', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -102,7 +102,7 @@ describe.sequential('P1: AI Features', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             slug: `test_prompt_${Date.now()}`,
             body: 'You are a helpful Chinese tutor.',
@@ -124,7 +124,7 @@ describe.sequential('P1: AI Features', () => {
     it('admin can list models', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/models', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -137,7 +137,7 @@ describe.sequential('P1: AI Features', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/models', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             modelId: `test-model-${Date.now()}`,
             displayName: 'Test Model',
@@ -160,7 +160,7 @@ describe.sequential('P1: AI Features', () => {
     it('ai tutor health check', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai-tutor/health', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -173,7 +173,7 @@ describe.sequential('P1: AI Features', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai-tutor/generate', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({
             focusWords: ['你好', '谢谢'],
             userLessonPosition: 1,
@@ -197,7 +197,7 @@ describe.sequential('P1: AI Features', () => {
     it('admin can get AI usage summary', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/summary', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -209,7 +209,7 @@ describe.sequential('P1: AI Features', () => {
     it('admin can get AI usage daily', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/daily', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

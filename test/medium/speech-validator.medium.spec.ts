@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Speech & Validator - Medium Priority', () => {
   let ctx: TestContext;
@@ -30,12 +30,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
 
   describe('Text-to-Speech', () => {
     it('POST /speech/tts generates audio', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ text: '你好' }),
         }),
         ctx.env,
@@ -60,12 +60,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('validates text is required', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({}),
         }),
         ctx.env,
@@ -76,12 +76,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('supports voice selection', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ text: '你好', voice: 'female' }),
         }),
         ctx.env,
@@ -92,12 +92,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('supports speed adjustment', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ text: '你好', speed: 0.8 }),
         }),
         ctx.env,
@@ -114,12 +114,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
 
   describe('Vocabulary Validator', () => {
     it('POST /validator/check validates text', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/check', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             text: '我喜欢学习中文',
             lessonPosition: 10,
@@ -133,12 +133,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('POST /validator/analyze returns analysis', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/analyze', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ text: '学习中文' }),
         }),
         ctx.env,
@@ -159,12 +159,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('POST /validator/lookup looks up word', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/lookup', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ word: '学习' }),
         }),
         ctx.env,
@@ -181,12 +181,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
 
   describe('Batch Validation', () => {
     it('POST /validator/batch validates multiple', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/batch', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             items: [
               { text: '你好', lessonPosition: 1 },
@@ -202,7 +202,7 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('limits batch size', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       // Create a large batch
       const items = Array(100).fill(null).map((_, i) => ({
@@ -213,7 +213,7 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/batch', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ items }),
         }),
         ctx.env,
@@ -230,12 +230,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
 
   describe('HSK Level Validation', () => {
     it('POST /validator/hsk-check validates HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/validator/hsk-check', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             text: '我喜欢学习',
             maxHskLevel: 2,

@@ -11,8 +11,12 @@ import { drizzle } from 'drizzle-orm/d1';
 import { nanoid } from 'nanoid';
 import type { AppEnv } from '../types/app';
 import { storySeries, stories } from '../schema';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // ============================================
 // VALIDATION SCHEMAS

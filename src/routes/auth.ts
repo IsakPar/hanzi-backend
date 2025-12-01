@@ -8,8 +8,12 @@
 import { Hono } from 'hono';
 import { createAuth } from '../lib/auth';
 import type { AppEnv } from '../types/app';
+import { authRateLimit } from '../middleware/rate-limit';
 
 const authRouter = new Hono<AppEnv>();
+
+// Apply rate limiting to all Better Auth endpoints
+authRouter.use('/*', authRateLimit);
 
 /**
  * Bootstrap endpoint: Promote a user to admin

@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Vocabulary API - High Priority', () => {
   let ctx: TestContext;
@@ -140,12 +140,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
 
   describe('Admin Vocabulary API', () => {
     it('POST /vocabulary/admin creates vocabulary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             hanzi: '谢谢',
             pinyin: 'xièxiè',
@@ -162,12 +162,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
     });
 
     it('PUT /vocabulary/admin/:id updates vocabulary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/vocab-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             english: 'hello; hi',
           }),
@@ -187,12 +187,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
     });
 
     it('DELETE /vocabulary/admin/:id removes vocabulary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/vocab-3', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -209,12 +209,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
     });
 
     it('denies non-admin access to admin endpoints', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             hanzi: '不',
             pinyin: 'bù',
@@ -236,12 +236,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
 
   describe('Vocabulary Validation', () => {
     it('rejects empty hanzi', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             hanzi: '',
             pinyin: 'test',
@@ -257,12 +257,12 @@ describe.sequential('Vocabulary API - High Priority', () => {
     });
 
     it('rejects invalid HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             hanzi: '测试',
             pinyin: 'cèshì',

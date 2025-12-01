@@ -10,9 +10,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
+  authBearerHeaders,
   type BetterAuthTestUser,
-} from '../fixtures/better-auth-helpers';
+} from '../fixtures/jwt-auth-helpers';
 
 const baseUrl = 'http://localhost';
 
@@ -83,7 +83,7 @@ describe.sequential('Analytics routes', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     adminUser = admin.user;
-    adminToken = admin.sessionToken;
+    adminToken = admin.accessToken;
     await seedAnalyticsData(ctx, adminUser.id);
   });
 
@@ -94,7 +94,7 @@ describe.sequential('Analytics routes', () => {
   it('returns filtered AI analytics for admin', async () => {
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/ai?prompt_slug=lesson_default&success=true`, {
-        headers: authCookieHeaders(adminToken),
+        headers: authBearerHeaders(adminToken),
       }),
       ctx.env,
       executionContext
@@ -107,11 +107,11 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('rejects non-admin access', async () => {
-    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
     
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/ai`, {
-        headers: authCookieHeaders(sessionToken),
+        headers: authBearerHeaders(sessionToken),
       }),
       ctx.env,
       executionContext
@@ -126,7 +126,7 @@ describe.sequential('Analytics routes', () => {
     
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/system?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, {
-        headers: authCookieHeaders(adminToken),
+        headers: authBearerHeaders(adminToken),
       }),
       ctx.env,
       executionContext
@@ -139,11 +139,11 @@ describe.sequential('Analytics routes', () => {
   });
 
   it('rejects non-admin access to system analytics', async () => {
-    const { sessionToken } = await createAuthenticatedUser(ctx.db);
+    const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
     
     const res = await ctx.app.fetch(
       new Request(`${baseUrl}/v1/analytics/system`, {
-        headers: authCookieHeaders(sessionToken),
+        headers: authBearerHeaders(sessionToken),
       }),
       ctx.env,
       executionContext

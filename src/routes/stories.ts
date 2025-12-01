@@ -6,8 +6,12 @@ import type { AppEnv } from '../types/app';
 import { createStoriesDomain } from '../domains/stories';
 import { AnalyticsService } from '../services/analytics';
 import { logWithContext } from '../utils/logger';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // All stories endpoints require admin auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));

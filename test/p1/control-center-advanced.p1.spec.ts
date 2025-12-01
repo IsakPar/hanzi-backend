@@ -7,7 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P1: Control Center Advanced', () => {
@@ -19,8 +21,8 @@ describe.sequential('P1: Control Center Advanced', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -35,7 +37,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('admin can view staging dashboard', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/dashboard', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -47,7 +49,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('admin can view content by status', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content?status=staging', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -59,7 +61,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('user cannot access control center', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/dashboard', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -77,7 +79,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('admin can list announcements', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/announcements', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -90,10 +92,7 @@ describe.sequential('P1: Control Center Advanced', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/announcements', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             title: 'Test Announcement',
             message: 'This is a test',
@@ -127,7 +126,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('admin can view rate limit config', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/rate-limits', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -140,10 +139,7 @@ describe.sequential('P1: Control Center Advanced', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/rate-limits', {
           method: 'PUT',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             tier: 'free',
             limits: { aiGenerationsPerDay: 5 },
@@ -165,7 +161,7 @@ describe.sequential('P1: Control Center Advanced', () => {
     it('admin can list test devices', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices', {
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -178,10 +174,7 @@ describe.sequential('P1: Control Center Advanced', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             deviceId: nanoid(),
             name: 'Test iPhone',

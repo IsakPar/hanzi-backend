@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Units API - High Priority', () => {
   let ctx: TestContext;
@@ -30,12 +30,12 @@ describe.sequential('Units API - High Priority', () => {
 
   describe('Unit CRUD', () => {
     it('POST /units creates a unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             hskLevel: 1,
             title: 'Greetings',
@@ -52,7 +52,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('GET /units lists units', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       // Create a unit first
       await ctx.db.prepare(`
@@ -62,7 +62,7 @@ describe.sequential('Units API - High Priority', () => {
 
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -74,7 +74,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('GET /units/:id returns single unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -83,7 +83,7 @@ describe.sequential('Units API - High Priority', () => {
 
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/unit-2', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -95,7 +95,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('PUT /units/:id updates unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -105,7 +105,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/unit-3', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ title: 'New Title' }),
         }),
         ctx.env,
@@ -116,7 +116,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('DELETE /units/:id removes unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -126,7 +126,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/unit-4', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -136,11 +136,11 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('returns 404 for non-existent unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/non-existent', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -168,11 +168,11 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('filters units by HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -186,11 +186,11 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('supports multiple HSK levels', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res1 = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -198,7 +198,7 @@ describe.sequential('Units API - High Priority', () => {
 
       const res2 = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=2', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -218,7 +218,7 @@ describe.sequential('Units API - High Priority', () => {
 
   describe('Publishing Workflow', () => {
     it('publishes a draft unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -228,7 +228,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/draft-unit', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,
@@ -239,7 +239,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('unpublishes a unit', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -249,7 +249,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/pub-unit', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ isPublished: false }),
         }),
         ctx.env,
@@ -266,12 +266,12 @@ describe.sequential('Units API - High Priority', () => {
 
   describe('Access Control', () => {
     it('denies non-admin POST', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 1, title: 'Test' }),
         }),
         ctx.env,
@@ -282,7 +282,7 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('denies non-admin PUT', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       await ctx.db.prepare(`
         INSERT INTO units (id, hsk_level, unit_number, title, is_published, created_at)
@@ -292,7 +292,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/test-unit', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ title: 'Hacked' }),
         }),
         ctx.env,
@@ -303,12 +303,12 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('denies non-admin DELETE', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/any-unit', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -318,11 +318,11 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('denies non-admin GET on units list', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -338,12 +338,12 @@ describe.sequential('Units API - High Priority', () => {
 
   describe('Validation', () => {
     it('rejects missing title', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 1 }),
         }),
         ctx.env,
@@ -354,12 +354,12 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('rejects invalid HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 999, title: 'Invalid' }),
         }),
         ctx.env,
@@ -370,12 +370,12 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('rejects negative HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: -1, title: 'Negative' }),
         }),
         ctx.env,
@@ -392,13 +392,13 @@ describe.sequential('Units API - High Priority', () => {
 
   describe('Unit Ordering', () => {
     it('auto-assigns unit number', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       // Create first unit
       await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 3, title: 'First' }),
         }),
         ctx.env,
@@ -409,7 +409,7 @@ describe.sequential('Units API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 3, title: 'Second' }),
         }),
         ctx.env,
@@ -422,12 +422,12 @@ describe.sequential('Units API - High Priority', () => {
     });
 
     it('allows explicit unit number', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ hskLevel: 4, title: 'Explicit', unitNumber: 10 }),
         }),
         ctx.env,

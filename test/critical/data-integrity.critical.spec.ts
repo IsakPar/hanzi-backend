@@ -20,9 +20,9 @@ import {
 } from '../fixtures/seed-data';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Data Integrity Critical Path', () => {
   let ctx: TestContext;
@@ -31,7 +31,7 @@ describe.sequential('Data Integrity Critical Path', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminToken = admin.sessionToken;
+    adminToken = admin.accessToken;
   });
 
   afterEach(async () => {
@@ -54,7 +54,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify(unitData),
         }),
         ctx.env,
@@ -72,7 +72,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 2,
             title: 'First Unit',
@@ -86,7 +86,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 2,
             title: 'Second Unit',
@@ -107,7 +107,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -131,7 +131,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({ title: 'Updated Title' }),
         }),
         ctx.env,
@@ -144,7 +144,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -164,7 +164,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -176,7 +176,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -189,7 +189,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units/non-existent-id', {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -202,7 +202,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             // Missing required: hskLevel, title
             description: 'Just a description',
@@ -223,7 +223,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=4', {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -325,7 +325,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify(vocabData),
         }),
         ctx.env,
@@ -437,7 +437,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({ english: 'updated meaning' }),
         }),
         ctx.env,
@@ -465,7 +465,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -498,7 +498,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -527,7 +527,7 @@ describe.sequential('Data Integrity Critical Path', () => {
         ctx.app.fetch(
           new Request(`http://localhost/v1/units/${unit.id}`, {
             method: 'PUT',
-            headers: jsonAuthCookieHeaders(adminToken),
+            headers: jsonAuthBearerHeaders(adminToken),
             body: JSON.stringify({ title: `Update ${i}` }),
           }),
           ctx.env,
@@ -568,7 +568,7 @@ describe.sequential('Data Integrity Critical Path', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,

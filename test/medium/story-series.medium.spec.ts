@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Story Series & Categories - Medium Priority', () => {
   let ctx: TestContext;
@@ -30,11 +30,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
 
   describe('Story Series', () => {
     it('GET /story-series lists series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -44,12 +44,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('POST /story-series creates series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             name: 'Daily Life',
             description: 'Stories about daily life',
@@ -63,11 +63,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('GET /story-series/:id returns series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -77,12 +77,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('PUT /story-series/:id updates series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ name: 'Updated Series' }),
         }),
         ctx.env,
@@ -93,12 +93,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('DELETE /story-series/:id removes series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -108,12 +108,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('requires admin for series management', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ name: 'Test' }),
         }),
         ctx.env,
@@ -131,11 +131,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
 
   describe('Story Categories', () => {
     it('GET /story-categories lists categories', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -145,12 +145,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('POST /story-categories creates category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             name: 'Adventure',
             description: 'Adventure stories',
@@ -164,11 +164,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('GET /story-categories/:id returns category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -178,12 +178,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('PUT /story-categories/:id updates category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ name: 'Updated Category' }),
         }),
         ctx.env,
@@ -194,12 +194,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('DELETE /story-categories/:id removes category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -215,11 +215,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
 
   describe('Category Items', () => {
     it('GET /story-categories/:id/stories lists stories in category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1/stories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -229,12 +229,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('POST /story-categories/:id/stories adds story to category', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1/stories', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ storyId: 'story-1' }),
         }),
         ctx.env,
@@ -245,12 +245,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('DELETE /story-categories/:catId/stories/:storyId removes', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories/cat-1/stories/story-1', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -266,11 +266,11 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
 
   describe('Series Stories', () => {
     it('GET /story-series/:id/stories lists stories in series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1/stories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -280,12 +280,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('POST /story-series/:id/stories adds story to series', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1/stories', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ storyId: 'story-1', order: 1 }),
         }),
         ctx.env,
@@ -296,12 +296,12 @@ describe.sequential('Story Series & Categories - Medium Priority', () => {
     });
 
     it('PUT /story-series/:id/stories/:storyId reorders', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series/series-1/stories/story-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ order: 2 }),
         }),
         ctx.env,

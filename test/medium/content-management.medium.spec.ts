@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Content Management - Medium Priority', () => {
   let ctx: TestContext;
@@ -30,7 +30,7 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Content Upload', () => {
     it('POST /admin/content/upload accepts file', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const form = new FormData();
       form.set('file', new File(['test'], 'test.pdf', { type: 'application/pdf' }));
@@ -39,7 +39,7 @@ describe.sequential('Content Management - Medium Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/content/upload', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
           body: form,
         }),
         ctx.env,
@@ -50,12 +50,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('requires admin for upload', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/content/upload', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -71,7 +71,7 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Audio Management', () => {
     it('POST /audio/upload accepts audio file', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const form = new FormData();
       form.set('file', new File(['audio'], 'test.mp3', { type: 'audio/mpeg' }));
@@ -79,7 +79,7 @@ describe.sequential('Content Management - Medium Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/audio/upload', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
           body: form,
         }),
         ctx.env,
@@ -90,12 +90,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('DELETE /admin/content/audio removes audio', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/content/audio', {
           method: 'DELETE',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ key: 'test-audio.mp3' }),
         }),
         ctx.env,
@@ -112,11 +112,11 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Content Library', () => {
     it('GET /content/library lists content', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/content/library', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -126,11 +126,11 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('GET /content/library/:id returns content', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/content/library/test-id', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -140,12 +140,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('PUT /content/library/:id updates content', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/content/library/test-id', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ title: 'Updated' }),
         }),
         ctx.env,
@@ -156,12 +156,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('DELETE /content/library/:id removes content', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/content/library/test-id', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -177,11 +177,11 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Lesson Cache', () => {
     it('GET /lesson-cache/:lessonId returns cached', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/lesson-1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -191,12 +191,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('POST /lesson-cache/:lessonId caches lesson', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/lesson-1', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ data: { blocks: [] } }),
         }),
         ctx.env,
@@ -207,12 +207,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('DELETE /lesson-cache/:lessonId invalidates cache', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/lesson-1', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -228,12 +228,12 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Vectorize', () => {
     it('POST /admin/vectorize/populate triggers population', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/vectorize/populate', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -244,11 +244,11 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('GET /admin/vectorize/stats returns stats', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/vectorize/stats', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -258,12 +258,12 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('POST /admin/vectorize/test-search tests search', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/vectorize/test-search', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ query: 'hello' }),
         }),
         ctx.env,
@@ -280,11 +280,11 @@ describe.sequential('Content Management - Medium Priority', () => {
 
   describe('Content Exports', () => {
     it('GET /export/lessons exports lessons', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/export/lessons', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -294,11 +294,11 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('GET /export/stories exports stories', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/export/stories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -308,11 +308,11 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('GET /export/vocabulary exports vocabulary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/export/vocabulary', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -322,11 +322,11 @@ describe.sequential('Content Management - Medium Priority', () => {
     });
 
     it('requires admin for exports', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/export/lessons', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext

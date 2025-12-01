@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createUserProgress } from '../fixtures/seed-data';
 
 describe.sequential('P1: Lesson Completion Edge Cases', () => {
@@ -20,7 +20,7 @@ describe.sequential('P1: Lesson Completion Edge Cases', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const auth = await createAuthenticatedUser(ctx.db);
-    userSession = auth.sessionToken;
+    userSession = auth.accessToken;
     userId = auth.user.id;
   });
 

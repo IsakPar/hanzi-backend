@@ -12,8 +12,12 @@ import * as schema from '../schema';
 import type { AppEnv } from '../types/env';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
+import { aiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting to AI endpoints (expensive operations)
+app.use('*', aiRateLimit);
 
 // Auth required for all routes
 app.use('*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));

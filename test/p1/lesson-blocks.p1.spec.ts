@@ -7,9 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createTestLessonBlock } from '../fixtures/seed-data';
 
 describe.sequential('P1: Lesson Blocks', () => {
@@ -21,8 +21,8 @@ describe.sequential('P1: Lesson Blocks', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -183,7 +183,7 @@ describe.sequential('P1: Lesson Blocks', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

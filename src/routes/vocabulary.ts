@@ -7,6 +7,7 @@ import { vocabulary } from '../schema';
 import { eq, like, and, or, desc, asc, sql } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 /**
  * Escape special characters for LIKE queries to prevent injection
@@ -20,6 +21,9 @@ function escapeLikePattern(value: string): string {
 }
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 // Protect admin routes
 app.use('/admin/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));

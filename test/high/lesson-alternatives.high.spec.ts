@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Lesson Alternatives API - High Priority', () => {
   let ctx: TestContext;
@@ -51,11 +51,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
 
   describe('Block Slots', () => {
     it('GET /lesson-alternatives/blocks/:blockId/slots lists slots', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/blocks/block-1/slots', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -65,12 +65,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('POST /lesson-alternatives/blocks/:blockId/slots creates slot', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/blocks/block-1/slots', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             word: '你',
             position: 0,
@@ -85,11 +85,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('slot management requires auth (admin check may be missing)', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/blocks/block-1/slots', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -107,11 +107,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
 
   describe('Alternatives', () => {
     it('GET /lesson-alternatives/slots/:slotId/alternatives lists', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/slots/slot-1/alternatives', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -121,12 +121,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('POST /lesson-alternatives/suggest-alternatives suggests', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/suggest-alternatives', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             word: '你好',
             hskLevel: 1,
@@ -140,12 +140,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('POST /lesson-alternatives/slots/:slotId/alternatives adds', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/slots/slot-1/alternatives', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             vocabId: 'vocab-1',
           }),
@@ -164,11 +164,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
 
   describe('Connected Words', () => {
     it('GET /lesson-alternatives/blocks/:blockId/connected lists', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/blocks/block-1/connected', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -178,12 +178,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('POST /lesson-alternatives/suggest-connected suggests', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/suggest-connected', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             blockId: 'block-1',
             hskLevel: 1,
@@ -197,12 +197,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('POST /lesson-alternatives/blocks/:blockId/connected adds', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/blocks/block-1/connected', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             vocabId: 'vocab-1',
           }),
@@ -221,11 +221,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
 
   describe('Lesson Export', () => {
     it('GET /lesson-alternatives/lessons/:lessonId/export exports', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/lessons/lesson-1/export', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -235,11 +235,11 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
     });
 
     it('export requires auth (admin check may be missing)', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/lessons/lesson-1/export', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -256,12 +256,12 @@ describe.sequential('Lesson Alternatives API - High Priority', () => {
 
   describe('Focus Word Management', () => {
     it('PUT /lesson-alternatives/slots/:slotId/focus sets focus', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/slots/slot-1/focus', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ isFocus: true }),
         }),
         ctx.env,

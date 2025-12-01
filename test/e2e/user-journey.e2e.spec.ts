@@ -20,10 +20,10 @@ import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
   createBetterAuthUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
   type BetterAuthTestUser,
-} from '../fixtures/better-auth-helpers';
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('E2E: User Journeys', () => {
   let ctx: TestContext;
@@ -115,7 +115,7 @@ describe.sequential('E2E: User Journeys', () => {
 
     beforeEach(async () => {
       const admin = await createAuthenticatedAdmin(ctx.db);
-      adminToken = admin.sessionToken;
+      adminToken = admin.accessToken;
     });
 
     it('creates unit and lists it', async () => {
@@ -123,7 +123,7 @@ describe.sequential('E2E: User Journeys', () => {
       const createRes = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 1,
             title: 'Introduction to Chinese',
@@ -141,7 +141,7 @@ describe.sequential('E2E: User Journeys', () => {
       const listRes = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -159,7 +159,7 @@ describe.sequential('E2E: User Journeys', () => {
       const createRes = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             hanzi: '朋友',
             pinyin: 'péngyou',
@@ -200,7 +200,7 @@ describe.sequential('E2E: User Journeys', () => {
       const publishRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,
@@ -213,7 +213,7 @@ describe.sequential('E2E: User Journeys', () => {
       const getRes = await ctx.app.fetch(
         new Request(`http://localhost/v1/units/${unit.id}`, {
           method: 'GET',
-          headers: authCookieHeaders(adminToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -386,7 +386,7 @@ describe.sequential('E2E: User Journeys', () => {
 
   describe('Error Recovery', () => {
     it('handles concurrent unit updates gracefully', async () => {
-      const { sessionToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
 
       const unit = await createTestUnit(ctx.db, {
         hskLevel: 3,
@@ -398,7 +398,7 @@ describe.sequential('E2E: User Journeys', () => {
         ctx.app.fetch(
           new Request(`http://localhost/v1/units/${unit.id}`, {
             method: 'PUT',
-            headers: jsonAuthCookieHeaders(adminToken),
+            headers: jsonAuthBearerHeaders(adminToken),
             body: JSON.stringify({ title: `Concurrent Update ${i}` }),
           }),
           ctx.env,
@@ -423,13 +423,13 @@ describe.sequential('E2E: User Journeys', () => {
     });
 
     it('validates input and rejects invalid data', async () => {
-      const { sessionToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: adminToken } = await createAuthenticatedAdmin(ctx.db);
 
       // Try to create unit with invalid HSK level
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminToken),
+          headers: jsonAuthBearerHeaders(adminToken),
           body: JSON.stringify({
             hskLevel: 999, // Invalid: should be 1-9
             title: 'Invalid Unit',
@@ -443,13 +443,13 @@ describe.sequential('E2E: User Journeys', () => {
     });
 
     it('returns proper error for unauthorized access', async () => {
-      const { sessionToken: userToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: userToken } = await createAuthenticatedUser(ctx.db);
 
       // Try to access admin endpoint
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units', {
           method: 'GET',
-          headers: authCookieHeaders(userToken),
+          headers: authBearerHeaders(userToken),
         }),
         ctx.env,
         executionContext

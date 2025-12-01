@@ -7,9 +7,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createTestStory, createTestUnit } from '../fixtures/seed-data';
 
 describe.sequential('P2: Content Publishing', () => {
@@ -21,8 +21,8 @@ describe.sequential('P2: Content Publishing', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -72,7 +72,7 @@ describe.sequential('P2: Content Publishing', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -132,7 +132,7 @@ describe.sequential('P2: Content Publishing', () => {
     it('admin can get content status', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -144,7 +144,7 @@ describe.sequential('P2: Content Publishing', () => {
     it('user cannot access control center', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

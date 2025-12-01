@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestStory } from '../fixtures/seed-data';
 
 describe.sequential('P1: Story Questions', () => {
@@ -18,7 +18,7 @@ describe.sequential('P1: Story Questions', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminSession = admin.sessionToken;
+    adminSession = admin.accessToken;
   });
 
   afterEach(async () => {

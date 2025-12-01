@@ -42,11 +42,11 @@ export async function createTestContext(): Promise<TestContext> {
     MAX_REQUESTS_PER_DAY: '5',
     MAX_TOKENS_PER_DAY: '1000',
     REVENUECAT_WEBHOOK_SECRET: 'test-webhook-secret',
-    // Legacy JWT config (still required by runtime config)
-    JWT_SECRET: 'test-jwt-secret-for-config-validation',
+    // JWT config - MUST match jwt-auth-helpers.ts DEFAULT_JWT_SECRET
+    JWT_SECRET: 'test-jwt-secret-for-testing',
     JWT_MAX_AGE: '1h',
-    // Better Auth configuration for tests
-    BETTER_AUTH_SECRET: 'test-better-auth-secret-at-least-32-chars',
+    // Better Auth configuration - also used as JWT fallback
+    BETTER_AUTH_SECRET: 'test-jwt-secret-for-testing',
     BETTER_AUTH_URL: 'http://localhost',
   };
 

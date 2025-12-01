@@ -13,8 +13,12 @@ import { logWithContext } from '../utils/logger';
 import type { AppEnv } from '../types/app';
 import type { PipelineStep, CostLimits, QualityGate } from '../schema';
 import OpenAI from 'openai';
+import { aiRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting (AI operations are expensive)
+app.use('/*', aiRateLimit);
 
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
@@ -514,6 +518,105 @@ app.post('/chat', zValidator('json', chatSchema), async (c) => {
     return c.json({ 
       error: 'Chat failed', 
       message: err.message || 'Unknown error' 
+    }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// AI SUGGESTIONS (RAG-powered content generation)
+// ═══════════════════════════════════════════════════════════
+
+const suggestSchema = z.object({
+  context: z.enum(['mcq-wrong-option', 'distractor-word', 'alternative-phrase', 'similar-word']),
+  correctAnswer: z.string().optional(),
+  hskLevel: z.number().int().min(1).max(9).optional(),
+  exclude: z.array(z.string()).optional(),
+  count: z.number().int().min(1).max(10).default(5),
+  searchQuery: z.string().optional(), // Optional override for search
+});
+
+/**
+ * POST /suggest - Get AI-powered content suggestions
+ * Uses Vectorize to find semantically similar vocabulary
+ */
+app.post('/suggest', zValidator('json', suggestSchema), async (c) => {
+  const body = c.req.valid('json');
+  const requestId = c.get('requestId');
+  
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    // Import VectorizeService dynamically
+    const { VectorizeService } = await import('../services/vectorize');
+    
+    // Check if Vectorize is available
+    if (!c.env.VECTORIZE || !c.env.AI) {
+      return c.json({ 
+        error: 'Vector search not configured',
+        suggestions: [],
+      }, 200);
+    }
+
+    const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, requestId);
+    
+    // Build search query
+    const searchQuery = body.searchQuery || body.correctAnswer || '';
+    if (!searchQuery) {
+      return c.json({ suggestions: [], message: 'No search query provided' });
+    }
+
+    // Search for similar vocabulary
+    const results = await vectorize.search(searchQuery, {
+      type: 'vocabulary',
+      hskLevel: body.hskLevel,
+      topK: (body.count || 5) + (body.exclude?.length || 0) + 1, // Get extra to filter
+    });
+
+    // Filter out excluded items and the correct answer
+    const excludeSet = new Set([
+      ...(body.exclude || []),
+      body.correctAnswer || '',
+    ].map(s => s.toLowerCase()));
+
+    const suggestions = results
+      .filter(r => {
+        const hanzi = r.metadata?.hanzi?.toLowerCase() || '';
+        const title = r.metadata?.title?.toLowerCase() || '';
+        return !excludeSet.has(hanzi) && !excludeSet.has(title);
+      })
+      .slice(0, body.count || 5)
+      .map(r => ({
+        id: r.id,
+        text: r.metadata?.hanzi || r.metadata?.title || '',
+        pinyin: r.metadata?.pinyin || '',
+        score: r.score,
+        hskLevel: r.metadata?.hskLevel,
+      }));
+
+    logWithContext('info', 'ai.suggest.success', {
+      requestId,
+      meta: { 
+        context: body.context,
+        query: searchQuery.slice(0, 20),
+        resultsCount: suggestions.length,
+      },
+    });
+
+    return c.json({ suggestions });
+
+  } catch (err: any) {
+    logWithContext('error', 'ai.suggest.failed', {
+      requestId,
+      meta: { error: err.message || String(err) },
+    });
+    
+    return c.json({ 
+      error: 'Suggestion failed', 
+      message: err.message || 'Unknown error',
+      suggestions: [],
     }, 500);
   }
 });

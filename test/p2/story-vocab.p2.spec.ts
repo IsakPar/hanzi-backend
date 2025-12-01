@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestStory, createTestVocab } from '../fixtures/seed-data';
 
 describe.sequential('P2: Story Vocabulary', () => {
@@ -17,7 +18,7 @@ describe.sequential('P2: Story Vocabulary', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminSession = admin.sessionToken;
+    adminSession = admin.accessToken;
   });
 
   afterEach(async () => {
@@ -139,7 +140,7 @@ describe.sequential('P2: Story Vocabulary', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}/vocabulary`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -155,10 +156,7 @@ describe.sequential('P2: Story Vocabulary', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}/vocabulary`, {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${adminSession}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ vocabularyId: vocab.id }),
         }),
         ctx.env,

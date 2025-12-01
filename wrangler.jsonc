@@ -32,6 +32,14 @@
   "ai": {
     "binding": "AI"
   },
+  // KV for rate limiting
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT_KV",
+      "id": "4f4f6f9dfc574dcf93a01e7eb8d4a27b",
+      "preview_id": "6602574ce47542419556293933ced954"
+    }
+  ],
   // Environment Variables (non-secret)
   "vars": {
     "ENVIRONMENT": "development",
@@ -49,7 +57,8 @@
     "crons": [
       "0 */6 * * *",    // Every 6 hours: cleanup orphaned uploads
       "*/10 * * * *",   // Every 10 minutes: engagement event aggregation
-      "0 3 * * *"       // Daily at 3 AM UTC: backup critical data to R2
+      "0 3 * * *",      // Daily at 3 AM UTC: backup critical data to R2
+      "0 * * * *"       // Every hour: cleanup expired refresh tokens
     ]
   },
   // Secrets (Set via: npx wrangler secret put <KEY_NAME>)

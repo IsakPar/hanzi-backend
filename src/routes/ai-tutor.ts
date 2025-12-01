@@ -12,8 +12,12 @@ import { AppBindings, AppVariables } from '../types/app';
 import { AITutorGenerator, TutorLesson } from '../services/ai-tutor-generator';
 import { VectorizeService } from '../services/vectorize';
 import { logWithContext } from '../utils/logger';
+import { aiRateLimit } from '../middleware/rate-limit';
 
 const aiTutorRouter = new Hono<{ Bindings: AppBindings; Variables: AppVariables }>();
+
+// Apply rate limiting to AI generation (expensive operations)
+aiTutorRouter.use('/*', aiRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // Validation Schemas

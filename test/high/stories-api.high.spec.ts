@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Stories API - High Priority', () => {
   let ctx: TestContext;
@@ -56,11 +56,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('GET /stories returns stories for admin', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -72,11 +72,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('GET /stories filters by HSK level', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories?hsk_level=1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -90,11 +90,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('GET /stories/:id returns story details', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -106,11 +106,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('GET /stories/:id returns 404 for non-existent', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/non-existent', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -120,11 +120,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('denies regular user access', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -140,12 +140,12 @@ describe.sequential('Stories API - High Priority', () => {
 
   describe('Admin Stories API', () => {
     it('POST /stories creates a story', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             title: 'New Story',
             hskLevel: 1,
@@ -161,12 +161,12 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('PUT /stories/:id updates a story', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             title: 'Updated Cat Story',
           }),
@@ -179,12 +179,12 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('DELETE /stories/:id removes a story', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-draft', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -212,11 +212,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('story includes sentences', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -236,12 +236,12 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('POST /stories/:id/sentences adds sentence', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1/sentences', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             chinese: '猫睡觉了',
             pinyin: 'māo shuì jiào le',
@@ -284,7 +284,7 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('POST /stories/:id/vocabulary adds vocabulary', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       // Create another vocab
       await ctx.db.prepare(`
@@ -295,7 +295,7 @@ describe.sequential('Stories API - High Priority', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1/vocabulary', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             vocabId: 'fish-vocab',
             contextSentence: '它喜欢吃鱼',
@@ -334,12 +334,12 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('POST /stories/:id/questions adds question', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1/questions', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             questionChinese: '猫是什么颜色?',
             questionEnglish: 'What color is the cat?',
@@ -361,11 +361,11 @@ describe.sequential('Stories API - High Priority', () => {
 
   describe('Search & Filtering', () => {
     it('searches stories by title', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/search?q=Cat', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -375,11 +375,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('filters by multiple criteria', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories?hsk_level=1&difficulty=easy', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -389,11 +389,11 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('supports pagination', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories?limit=1&offset=0', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -409,12 +409,12 @@ describe.sequential('Stories API - High Priority', () => {
 
   describe('Publishing', () => {
     it('publishes a draft story', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-draft', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,
@@ -425,12 +425,12 @@ describe.sequential('Stories API - High Priority', () => {
     });
 
     it('unpublishes a story', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/story-1', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ isPublished: false }),
         }),
         ctx.env,

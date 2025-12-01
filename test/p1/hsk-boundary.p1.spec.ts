@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createTestVocab, createTestStory } from '../fixtures/seed-data';
 
 describe.sequential('P1: HSK Level Boundary', () => {
@@ -18,7 +18,7 @@ describe.sequential('P1: HSK Level Boundary', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const auth = await createAuthenticatedUser(ctx.db);
-    userSession = auth.sessionToken;
+    userSession = auth.accessToken;
   });
 
   afterEach(async () => {
@@ -73,7 +73,7 @@ describe.sequential('P1: HSK Level Boundary', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons?hsk_level=1', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -93,7 +93,7 @@ describe.sequential('P1: HSK Level Boundary', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?hsk_level=2', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

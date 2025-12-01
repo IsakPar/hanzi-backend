@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 const mockedChatCreate = vi.fn(async () => ({
   choices: [
@@ -65,7 +65,7 @@ async function seedActivePrompt(ctx: TestContext, sessionToken: string) {
     new Request(`${promptsBase}`, {
       method: 'POST',
       headers: {
-        ...authCookieHeaders(sessionToken),
+        ...authBearerHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body,
@@ -78,7 +78,7 @@ async function seedActivePrompt(ctx: TestContext, sessionToken: string) {
     new Request(`${promptsBase}/lesson_default/promote`, {
       method: 'POST',
       headers: {
-        ...authCookieHeaders(sessionToken),
+        ...authBearerHeaders(sessionToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ version: 1, reason: 'Activate default prompt' }),
@@ -107,7 +107,7 @@ describe.sequential('AI routes', () => {
     mockedChatCreate.mockClear();
     
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminToken = admin.sessionToken;
+    adminToken = admin.accessToken;
     
     await seedActivePrompt(ctx, adminToken);
     await seedActiveModel(ctx);
@@ -122,7 +122,7 @@ describe.sequential('AI routes', () => {
       new Request(`${baseUrl}/v1/ai/generate`, {
         method: 'POST',
         headers: {
-          ...authCookieHeaders(adminToken),
+          ...authBearerHeaders(adminToken),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

@@ -1,0 +1,158 @@
+# Weekly Backup Verification Workflow
+#
+# Runs every Sunday at 04:00 UTC.
+# Downloads latest backup, decrypts, restores to staging, runs smoke tests.
+#
+# Manual trigger: Actions → Backup Verification → Run workflow
+
+name: Backup Verification
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'  # 04:00 UTC every Sunday
+  workflow_dispatch:
+    inputs:
+      backup_id:
+        description: 'Specific backup ID to verify (optional, defaults to latest)'
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  verify:
+    name: Verify Backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install wrangler
+        run: npm install -g wrangler
+
+      - name: Restore backup to staging
+        id: restore
+        run: |
+          npx ts-node backup/restore.ts ${{ github.event.inputs.backup_id }}
+        env:
+          ENVIRONMENT: staging
+          USE_WRANGLER_CLI: 'true'
+          
+          # Source: Download from R2 first, fallback to S3
+          R2_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          
+          S3_BUCKET: ${{ secrets.S3_BACKUP_BUCKET }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+          S3_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          
+          # Target: Staging D1
+          D1_STAGING_DATABASE_NAME: ${{ secrets.D1_STAGING_DATABASE_NAME }}
+          D1_STAGING_DATABASE_ID: ${{ secrets.D1_STAGING_DATABASE_ID }}
+          D1_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          
+          # Decryption
+          ENCRYPTION_KEY_ID: ${{ secrets.BACKUP_ENCRYPTION_KEY_ID }}
+          ENCRYPTION_LOCAL_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+
+      - name: Run smoke tests
+        id: smoke
+        run: |
+          npm run test -- --testPathPattern='backup-restore.smoke' --passWithNoTests
+        env:
+          D1_STAGING_URL: ${{ secrets.D1_STAGING_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+      - name: Update backup verification status
+        if: always()
+        run: |
+          echo "Would update verification status in metadata..."
+          # TODO: Implement metadata update
+          # This would:
+          # 1. Download the backup metadata JSON
+          # 2. Update last_verified_at and last_verification_result
+          # 3. Re-upload metadata
+
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚨 Backup verification FAILED",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "🚨 Backup Verification Failed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Weekly backup verification failed. *Backups may not be restorable.*"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BACKUP_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "✅ Backup verification passed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "✅ Backup Verification Passed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Weekly backup verification completed successfully. Backups are restorable."
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BACKUP_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
+

@@ -7,7 +7,12 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  createTestUser,
+  signExpiredAccessToken,
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+  updateUserRole,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P0: Advanced Auth', () => {
@@ -28,26 +33,23 @@ describe.sequential('P0: Advanced Auth', () => {
   describe('Session Management', () => {
     it('creates unique session per login', async () => {
       const user = await createAuthenticatedUser(ctx.db);
-      const session1 = user.sessionToken;
+      const session1 = user.accessToken;
       
       // Create another session
       const user2 = await createAuthenticatedUser(ctx.db, { email: user.user.email });
-      const session2 = user2.sessionToken;
+      const session2 = user2.accessToken;
       
       expect(session1).not.toBe(session2);
     });
 
-    it('expired session returns 401', async () => {
-      const user = await createAuthenticatedUser(ctx.db);
-      
-      // Manually expire the session
-      await ctx.db.prepare(`
-        UPDATE ba_session SET expiresAt = datetime('now', '-1 hour') WHERE token = ?
-      `).bind(user.sessionToken).run();
+    it('expired JWT token returns 401', async () => {
+      // Create user and generate an expired token
+      const user = await createTestUser(ctx.db);
+      const expiredToken = await signExpiredAccessToken(user);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders(expiredToken),
         }),
         ctx.env,
         executionContext
@@ -56,15 +58,10 @@ describe.sequential('P0: Advanced Auth', () => {
       expect(res.status).toBe(401);
     });
 
-    it('deleted session returns 401', async () => {
-      const user = await createAuthenticatedUser(ctx.db);
-      
-      // Delete the session
-      await ctx.db.prepare(`DELETE FROM ba_session WHERE token = ?`).bind(user.sessionToken).run();
-      
+    it('invalid JWT token returns 401', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders('definitely-not-a-valid-jwt-token'),
         }),
         ctx.env,
         executionContext
@@ -86,7 +83,7 @@ describe.sequential('P0: Advanced Auth', () => {
       // First session should still work
       const res1 = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user1.sessionToken}` },
+          headers: authBearerHeaders(user1.accessToken),
         }),
         ctx.env,
         executionContext
@@ -95,7 +92,7 @@ describe.sequential('P0: Advanced Auth', () => {
       // Second session should also work (or fail due to token format)
       const res2 = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${sessionId2}` },
+          headers: authBearerHeaders(sessionId2),
         }),
         ctx.env,
         executionContext
@@ -111,10 +108,10 @@ describe.sequential('P0: Advanced Auth', () => {
   // ========================================
 
   describe('Cookie Security', () => {
-    it('rejects malformed session token', async () => {
+    it('rejects malformed Bearer token', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': 'better-auth.session_token=not-a-valid-token' },
+          headers: { 'Authorization': 'Bearer not-a-valid-token' },
         }),
         ctx.env,
         executionContext
@@ -123,10 +120,10 @@ describe.sequential('P0: Advanced Auth', () => {
       expect(res.status).toBe(401);
     });
 
-    it('rejects empty session token', async () => {
+    it('rejects empty Bearer token', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': 'better-auth.session_token=' },
+          headers: { 'Authorization': 'Bearer ' },
         }),
         ctx.env,
         executionContext
@@ -135,10 +132,10 @@ describe.sequential('P0: Advanced Auth', () => {
       expect(res.status).toBe(401);
     });
 
-    it('rejects session token with SQL injection attempt', async () => {
+    it('rejects token with SQL injection attempt', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=' OR '1'='1` },
+          headers: { 'Authorization': `Bearer ' OR '1'='1` },
         }),
         ctx.env,
         executionContext
@@ -168,7 +165,7 @@ describe.sequential('P0: Advanced Auth', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/analytics', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders(user.accessToken),
         }),
         ctx.env,
         executionContext
@@ -182,7 +179,7 @@ describe.sequential('P0: Advanced Auth', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/analytics', {
-          headers: { 'Cookie': `better-auth.session_token=${admin.sessionToken}` },
+          headers: authBearerHeaders(admin.accessToken),
         }),
         ctx.env,
         executionContext
@@ -191,19 +188,17 @@ describe.sequential('P0: Advanced Auth', () => {
       expect([200, 404]).toContain(res.status);
     });
 
-    it('role change reflected in next request', async () => {
+    it('role change requires new token (stateless JWT)', async () => {
       const user = await createAuthenticatedUser(ctx.db);
       
-      // Upgrade to admin
-      await ctx.db.prepare(`UPDATE ba_user SET role = 'admin' WHERE id = ?`).bind(user.user.id).run();
+      // Upgrade to admin in DB (updates both ba_user and users tables)
+      await updateUserRole(ctx.db, user.user.id, 'admin');
       
+      // OLD token still has 'user' role embedded
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin/bulk-import', {
           method: 'POST',
-          headers: {
-            'Cookie': `better-auth.session_token=${user.sessionToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: jsonAuthBearerHeaders(user.accessToken),
           body: JSON.stringify({
             entries: [{ hanzi: '测', pinyin: 'cè', english: 'test', hskLevel: 1, category: 'test' }],
           }),
@@ -212,8 +207,8 @@ describe.sequential('P0: Advanced Auth', () => {
         executionContext
       );
       
-      // Should now have access
-      expect([200, 201]).toContain(res.status);
+      // JWT is stateless - old token still has user role, so access denied
+      expect(res.status).toBe(403);
     });
   });
 
@@ -239,21 +234,25 @@ describe.sequential('P0: Advanced Auth', () => {
   // ========================================
 
   describe('Deleted Users', () => {
-    it('deleted user session returns 401', async () => {
+    it('JWT token stateless - remains valid after user deletion', async () => {
+      // Note: JWT is stateless - tokens remain valid until expiry
+      // This is a deliberate design tradeoff for performance
       const user = await createAuthenticatedUser(ctx.db);
       
-      // Delete the user
+      // Delete the user from both tables
+      await ctx.db.prepare(`DELETE FROM users WHERE id = ?`).bind(user.user.id).run();
       await ctx.db.prepare(`DELETE FROM ba_user WHERE id = ?`).bind(user.user.id).run();
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': `better-auth.session_token=${user.sessionToken}` },
+          headers: authBearerHeaders(user.accessToken),
         }),
         ctx.env,
         executionContext
       );
       
-      expect(res.status).toBe(401);
+      // Token is still valid but user lookup may fail - expect 200 or 404
+      expect([200, 404]).toContain(res.status);
     });
   });
 });

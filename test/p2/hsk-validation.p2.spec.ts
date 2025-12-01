@@ -7,8 +7,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createTestLesson, createTestStory, createTestUnit } from '../fixtures/seed-data';
 
 describe.sequential('P2: HSK Validation', () => {
@@ -20,8 +20,8 @@ describe.sequential('P2: HSK Validation', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -44,7 +44,7 @@ describe.sequential('P2: HSK Validation', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?hsk_level=1', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -80,7 +80,7 @@ describe.sequential('P2: HSK Validation', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons?hsk_level=1', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -116,7 +116,7 @@ describe.sequential('P2: HSK Validation', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/units?hsk_level=1', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

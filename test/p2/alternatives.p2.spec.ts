@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createTestLesson } from '../fixtures/seed-data';
 
 describe.sequential('P2: Alternatives', () => {
@@ -18,7 +18,7 @@ describe.sequential('P2: Alternatives', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminSession = admin.sessionToken;
+    adminSession = admin.accessToken;
   });
 
   afterEach(async () => {
@@ -31,7 +31,7 @@ describe.sequential('P2: Alternatives', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}/alternatives`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -46,7 +46,7 @@ describe.sequential('P2: Alternatives', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}/alternatives/generate`, {
           method: 'POST',
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -100,7 +100,7 @@ describe.sequential('P2: Alternatives', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/${vocab.id}/similar`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

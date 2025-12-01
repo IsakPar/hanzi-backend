@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P1: Rate Limit Concurrency', () => {
   let ctx: TestContext;
@@ -18,7 +18,7 @@ describe.sequential('P1: Rate Limit Concurrency', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const auth = await createAuthenticatedUser(ctx.db);
-    userSession = auth.sessionToken;
+    userSession = auth.accessToken;
   });
 
   afterEach(async () => {
@@ -30,7 +30,7 @@ describe.sequential('P1: Rate Limit Concurrency', () => {
       const requests = Array(5).fill(null).map(() =>
         ctx.app.fetch(
           new Request('http://localhost/v1/vocabulary', {
-            headers: authCookieHeaders(userSession),
+            headers: authBearerHeaders(userSession),
           }),
           ctx.env,
           executionContext
@@ -54,7 +54,7 @@ describe.sequential('P1: Rate Limit Concurrency', () => {
         ctx.app.fetch(
           new Request('http://localhost/v1/ai/chat', {
             method: 'POST',
-            headers: jsonAuthCookieHeaders(userSession),
+            headers: jsonAuthBearerHeaders(userSession),
             body: JSON.stringify({
               messages: [{ role: 'user', content: 'test' }],
             }),
@@ -80,7 +80,7 @@ describe.sequential('P1: Rate Limit Concurrency', () => {
       // Make a request
       await ctx.app.fetch(
         new Request('http://localhost/v1/lessons', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -125,7 +125,7 @@ describe.sequential('P1: Rate Limit Concurrency', () => {
         ctx.app.fetch(
           new Request('http://localhost/v1/ai-tutor/generate', {
             method: 'POST',
-            headers: jsonAuthCookieHeaders(userSession),
+            headers: jsonAuthBearerHeaders(userSession),
             body: JSON.stringify({
               focusWords: ['你好'],
               userLessonPosition: 1,

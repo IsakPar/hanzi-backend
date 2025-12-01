@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P2: Content Workflows', () => {
   let ctx: TestContext;
@@ -21,8 +21,8 @@ describe.sequential('P2: Content Workflows', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -37,7 +37,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('admin can list exports', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/exports', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -50,7 +50,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/exports', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             type: 'lessons',
             format: 'json',
@@ -67,7 +67,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/exports', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(userSession),
+          headers: jsonAuthBearerHeaders(userSession),
           body: JSON.stringify({
             type: 'lessons',
             format: 'json',
@@ -89,7 +89,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can list story series', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -102,7 +102,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-series', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             title: `Test Series ${Date.now()}`,
             description: 'A test series',
@@ -125,7 +125,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can list categories', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -138,7 +138,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/story-categories', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             name: `Category ${Date.now()}`,
             slug: `category-${Date.now()}`,
@@ -160,7 +160,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can get lesson slots', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/slots?lessonId=test-lesson', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -173,7 +173,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-alternatives/suggest', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             word: '你好',
             lessonId: 'test-lesson',
@@ -202,7 +202,7 @@ describe.sequential('P2: Content Workflows', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/audio/upload', {
           method: 'POST',
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
           body: formData,
         }),
         ctx.env,
@@ -221,7 +221,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can get derived levels', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/curriculum-derived/levels', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -233,7 +233,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can get derived vocabulary', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/curriculum-derived/vocabulary', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -251,7 +251,7 @@ describe.sequential('P2: Content Workflows', () => {
     it('can check cache status', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/status', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

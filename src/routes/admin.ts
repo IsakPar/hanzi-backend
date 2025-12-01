@@ -10,6 +10,7 @@ import { logWithContext } from '../utils/logger';
 import { createRevenueCatClient } from '../services/revenuecat-client';
 import { VectorizeService } from '../services/vectorize';
 import { AIUsageLogger } from '../services/ai-usage-logger';
+import { adminRateLimit } from '../middleware/rate-limit';
 
 // Default tier limits (used when database has no records)
 // Tiers: free (default), premium ($9.99/month, shown as "Master" in UI), pro (admin/internal)
@@ -47,6 +48,9 @@ const DEFAULT_TIER_LIMITS = {
 };
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting to admin routes
+app.use('/*', adminRateLimit);
 
 // Protect all routes in this file - requires admin role via Better Auth session
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
@@ -292,10 +296,10 @@ app.get('/users', async (c) => {
     
     // Get users
     const usersQuery = `
-      SELECT id, email, name, role, tier, email_verified, created_at, updated_at
+      SELECT id, email, name, role, tier, emailVerified, createdAt, updatedAt
       FROM ba_user
       ${whereClause}
-      ORDER BY created_at DESC
+      ORDER BY createdAt DESC
       LIMIT ? OFFSET ?
     `;
     const users = await c.env.DB.prepare(usersQuery)

@@ -82,21 +82,87 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler<AppEnv> 
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PRE-CONFIGURED RATE LIMITS
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Pre-configured rate limits for auth endpoints
+ * Auth endpoints - strictest (brute force protection)
+ * 10 requests per 5 minutes
  */
 export const authRateLimit = rateLimit({
-  max: 10,           // 10 attempts
-  windowSeconds: 300, // per 5 minutes
+  max: 10,
+  windowSeconds: 300,
   keyPrefix: 'auth',
 });
 
 /**
- * Stricter rate limit for password reset
+ * Password reset - very strict
+ * 3 requests per hour
  */
 export const passwordResetRateLimit = rateLimit({
-  max: 3,            // 3 attempts
-  windowSeconds: 3600, // per hour
+  max: 3,
+  windowSeconds: 3600,
   keyPrefix: 'pwreset',
+});
+
+/**
+ * Public endpoints (waitlist, curriculum, announcements)
+ * 30 requests per minute - generous for legitimate users
+ */
+export const publicRateLimit = rateLimit({
+  max: 30,
+  windowSeconds: 60,
+  keyPrefix: 'public',
+});
+
+/**
+ * AI/Expensive operations (AI generation, speech synthesis)
+ * 20 requests per minute - protects cost
+ */
+export const aiRateLimit = rateLimit({
+  max: 20,
+  windowSeconds: 60,
+  keyPrefix: 'ai',
+});
+
+/**
+ * Admin endpoints - moderate
+ * 100 requests per minute - admins need flexibility
+ */
+export const adminRateLimit = rateLimit({
+  max: 100,
+  windowSeconds: 60,
+  keyPrefix: 'admin',
+});
+
+/**
+ * Standard API endpoints - generous
+ * 200 requests per minute - normal usage
+ */
+export const apiRateLimit = rateLimit({
+  max: 200,
+  windowSeconds: 60,
+  keyPrefix: 'api',
+});
+
+/**
+ * Upload endpoints - moderate
+ * 30 requests per minute - prevent abuse
+ */
+export const uploadRateLimit = rateLimit({
+  max: 30,
+  windowSeconds: 60,
+  keyPrefix: 'upload',
+});
+
+/**
+ * Webhook endpoints - high throughput
+ * 500 requests per minute - webhooks can burst
+ */
+export const webhookRateLimit = rateLimit({
+  max: 500,
+  windowSeconds: 60,
+  keyPrefix: 'webhook',
 });
 

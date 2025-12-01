@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedAdmin,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestLesson, createTestVocab, createTestLessonBlock } from '../fixtures/seed-data';
 
 describe.sequential('P2: Lesson-Vocab Links', () => {
@@ -17,7 +17,7 @@ describe.sequential('P2: Lesson-Vocab Links', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
-    adminSession = admin.sessionToken;
+    adminSession = admin.accessToken;
   });
 
   afterEach(async () => {
@@ -140,7 +140,7 @@ describe.sequential('P2: Lesson-Vocab Links', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lessons/${lesson.id}`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

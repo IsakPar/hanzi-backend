@@ -14,8 +14,12 @@ import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { lessons, stories, testDevices } from '../schema';
 import { nanoid } from 'nanoid';
+import { adminRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', adminRateLimit);
 
 // All routes require admin
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));

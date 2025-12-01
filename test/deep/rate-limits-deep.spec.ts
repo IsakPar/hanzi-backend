@@ -10,9 +10,9 @@ import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
   createBetterAuthUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('Rate Limiting Deep Scenarios', () => {
   let ctx: TestContext;
@@ -137,12 +137,12 @@ describe.sequential('Rate Limiting Deep Scenarios', () => {
 
   describe('Admin Limit Updates', () => {
     it('admin can update free tier limits', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/free', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             requestsPerDay: 20,
             tokensPerDay: 10000,
@@ -160,12 +160,12 @@ describe.sequential('Rate Limiting Deep Scenarios', () => {
     });
 
     it('admin can update premium tier limits', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/premium', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             requestsPerDay: 200,
             tokensPerDay: 100000,
@@ -183,12 +183,12 @@ describe.sequential('Rate Limiting Deep Scenarios', () => {
     });
 
     it('non-admin cannot update limits', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/free', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             requestsPerDay: 1000,
             tokensPerDay: 1000000,
@@ -206,12 +206,12 @@ describe.sequential('Rate Limiting Deep Scenarios', () => {
     });
 
     it('rejects invalid tier names', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/ultra', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             requestsPerDay: 1000,
             tokensPerDay: 1000000,
@@ -235,12 +235,12 @@ describe.sequential('Rate Limiting Deep Scenarios', () => {
 
   describe('Limit Reset', () => {
     it('admin can reset limits to defaults', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/reset', {
           method: 'POST',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext

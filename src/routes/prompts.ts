@@ -5,8 +5,12 @@ import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { createPromptsDomain } from '../domains/prompts';
 import type { AppEnv } from '../types/app';
 import { AnalyticsService } from '../services/analytics';
+import { adminRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', adminRateLimit);
 
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 

@@ -9,9 +9,9 @@ import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
   createBetterAuthUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P2: Admin Management', () => {
   let ctx: TestContext;
@@ -22,8 +22,8 @@ describe.sequential('P2: Admin Management', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -38,7 +38,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can list users', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -50,7 +50,7 @@ describe.sequential('P2: Admin Management', () => {
     it('user cannot list users', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -65,7 +65,7 @@ describe.sequential('P2: Admin Management', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/admin/users/${targetUser.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ role: 'admin' }),
         }),
         ctx.env,
@@ -81,7 +81,7 @@ describe.sequential('P2: Admin Management', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/admin/users/${targetUser.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ tier: 'premium' }),
         }),
         ctx.env,
@@ -100,7 +100,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can get tier limits', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -113,7 +113,7 @@ describe.sequential('P2: Admin Management', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/free', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             requestsPerDay: 15,
             tokensPerDay: 7500,
@@ -134,7 +134,7 @@ describe.sequential('P2: Admin Management', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/tier-limits/invalid', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             requestsPerDay: 100,
             tokensPerDay: 50000,
@@ -160,7 +160,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can view waitlist', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/waitlist', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -219,7 +219,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can get content status', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/content', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -231,7 +231,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can get test devices', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/control-center/test-devices', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -249,7 +249,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can list announcements', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/announcements/admin', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -261,7 +261,7 @@ describe.sequential('P2: Admin Management', () => {
     it('admin can get announcement templates', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/announcements/templates', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -292,7 +292,7 @@ describe.sequential('P2: Admin Management', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/subscriptions/grant-promo', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             userId: targetUser.id,
             tier: 'premium',

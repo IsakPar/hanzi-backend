@@ -8,6 +8,7 @@ import type { AppEnv } from '../types/app';
 import { waitlist } from '../schema';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
+import { publicRateLimit } from '../middleware/rate-limit';
 
 const waitlistSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -15,6 +16,9 @@ const waitlistSchema = z.object({
 });
 
 const app = new Hono<AppEnv>();
+
+// Apply global rate limiting
+app.use('/*', publicRateLimit);
 
 // Simple IP-based rate limiter for waitlist signups
 // Allows 3 signups per IP per day (prevents spam)

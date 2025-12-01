@@ -6,6 +6,7 @@ import { AnalyticsService } from '../services/analytics';
 import { UserAnalyticsService } from '../services/user-analytics';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
+import { apiRateLimit } from '../middleware/rate-limit';
 
 const dateRangeSchema = z.object({
   from: z.string().optional(),
@@ -28,6 +29,9 @@ const daysSchema = z.object({
 });
 
 const app = new Hono<AppEnv>();
+
+// Apply rate limiting
+app.use('/*', apiRateLimit);
 
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 

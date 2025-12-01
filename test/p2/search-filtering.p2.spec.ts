@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
 import {
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createVocabBatch, createTestLesson } from '../fixtures/seed-data';
 
 describe.sequential('P2: Search & Filtering', () => {
@@ -17,7 +17,7 @@ describe.sequential('P2: Search & Filtering', () => {
   beforeEach(async () => {
     ctx = await createTestContext();
     const userAuth = await createAuthenticatedUser(ctx.db);
-    userSession = userAuth.sessionToken;
+    userSession = userAuth.accessToken;
   });
 
   afterEach(async () => {
@@ -31,7 +31,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?search=苹', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -46,7 +46,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?search=cat', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -62,7 +62,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?limit=5', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -80,7 +80,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?limit=5&offset=10', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -94,7 +94,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -115,7 +115,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons?difficulty=easy', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -130,7 +130,7 @@ describe.sequential('P2: Search & Filtering', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lessons?lesson_type=lesson', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

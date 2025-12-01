@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestVocab, createVocabBatch } from '../fixtures/seed-data';
 
 describe.sequential('P1: Vocabulary Comprehensive', () => {
@@ -22,8 +22,8 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -39,7 +39,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             hanzi: '测试',
             pinyin: 'cèshì',
@@ -61,7 +61,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -75,7 +75,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/${vocab.id}`, {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -90,7 +90,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ english: 'old, former' }),
         }),
         ctx.env,
@@ -106,7 +106,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/vocabulary/admin/${vocab.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -127,7 +127,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?search=苹', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -141,7 +141,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?search=dian', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -155,7 +155,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?search=cat', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -176,7 +176,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?hsk_level=1', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -196,7 +196,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?limit=10', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -213,7 +213,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
     it('supports offset', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary?limit=10&offset=5', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -232,7 +232,7 @@ describe.sequential('P1: Vocabulary Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/admin', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({
             pinyin: 'test',
             english: 'test',

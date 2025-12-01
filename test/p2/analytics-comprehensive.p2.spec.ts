@@ -8,8 +8,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestUser } from '../fixtures/seed-data';
 
 describe.sequential('P2: Analytics Comprehensive', () => {
@@ -21,8 +21,8 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -62,7 +62,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('admin can access analytics overview', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/overview', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -74,7 +74,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('user cannot access analytics', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/overview', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -92,7 +92,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get user stats', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/users', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -104,7 +104,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get user growth', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/users/growth', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -122,7 +122,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get content overview', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/content', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -134,7 +134,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get lesson analytics', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/lessons', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -146,7 +146,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get vocabulary analytics', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/vocabulary', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -166,7 +166,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/summary', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -180,7 +180,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/daily', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -201,7 +201,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/analytics/overview?from=${lastWeek}&to=${today}`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -213,7 +213,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('handles invalid date gracefully', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/overview?from=not-a-date', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -231,7 +231,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get subscription overview', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/subscriptions/overview', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -249,7 +249,7 @@ describe.sequential('P2: Analytics Comprehensive', () => {
     it('can get HSK level breakdown', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/hsk', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext

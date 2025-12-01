@@ -10,13 +10,13 @@ import {
   createAuthenticatedUser,
   createBetterAuthUser,
   createBetterAuthSession,
-  createExpiredSession,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-  deleteSession,
+  createTestUser,
+  signExpiredAccessToken,
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
   updateUserRole,
   updateUserTier,
-} from '../fixtures/better-auth-helpers';
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('P0: Auth Flows', () => {
   let ctx: TestContext;
@@ -35,11 +35,11 @@ describe.sequential('P0: Auth Flows', () => {
 
   describe('Login Flow', () => {
     it('valid session grants access', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -48,13 +48,13 @@ describe.sequential('P0: Auth Flows', () => {
       expect([200, 404]).toContain(res.status);
     });
 
-    it('expired session is rejected', async () => {
-      const user = await createBetterAuthUser(ctx.db);
-      const { sessionToken } = await createExpiredSession(ctx.db, user.id);
+    it('expired JWT token is rejected', async () => {
+      const user = await createTestUser(ctx.db);
+      const expiredToken = await signExpiredAccessToken(user);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(expiredToken),
         }),
         ctx.env,
         executionContext
@@ -63,13 +63,10 @@ describe.sequential('P0: Auth Flows', () => {
       expect(res.status).toBe(401);
     });
 
-    it('deleted session is rejected', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
-      await deleteSession(ctx.db, sessionToken);
-      
+    it('invalid JWT token is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders('completely-invalid-jwt-format'),
         }),
         ctx.env,
         executionContext
@@ -88,10 +85,10 @@ describe.sequential('P0: Auth Flows', () => {
       expect(res.status).toBe(401);
     });
 
-    it('empty cookie is rejected', async () => {
+    it('empty Authorization header is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: { 'Cookie': 'better-auth.session_token=' },
+          headers: { 'Authorization': 'Bearer ' },
         }),
         ctx.env,
         executionContext
@@ -103,7 +100,7 @@ describe.sequential('P0: Auth Flows', () => {
     it('random token is rejected', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/users/me', {
-          headers: authCookieHeaders('random-invalid-token-12345'),
+          headers: authBearerHeaders('random-invalid-token-12345'),
         }),
         ctx.env,
         executionContext
@@ -119,11 +116,11 @@ describe.sequential('P0: Auth Flows', () => {
 
   describe('Role Access Control', () => {
     it('admin can access admin endpoints', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -133,11 +130,11 @@ describe.sequential('P0: Auth Flows', () => {
     });
 
     it('user cannot access admin endpoints', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -146,38 +143,42 @@ describe.sequential('P0: Auth Flows', () => {
       expect(res.status).toBe(403);
     });
 
-    it('role change takes effect immediately', async () => {
-      const { sessionToken, user } = await createAuthenticatedUser(ctx.db);
+    it('role change requires new token to take effect (stateless JWT)', async () => {
+      const { accessToken: sessionToken, user } = await createAuthenticatedUser(ctx.db);
       
-      // Upgrade to admin
+      // Upgrade to admin in DB
       await updateUserRole(ctx.db, user.id, 'admin');
       
+      // OLD token still has 'user' role - should be rejected
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
       );
 
-      expect([200, 404, 500]).toContain(res.status);
+      // JWT is stateless - old token still has user role
+      expect(res.status).toBe(403);
     });
 
-    it('downgrade takes effect immediately', async () => {
-      const { sessionToken, user } = await createAuthenticatedAdmin(ctx.db);
+    it('downgrade requires new token to take effect (stateless JWT)', async () => {
+      const { accessToken: sessionToken, user } = await createAuthenticatedAdmin(ctx.db);
       
-      // Downgrade to user
+      // Downgrade to user in DB
       await updateUserRole(ctx.db, user.id, 'user');
       
+      // OLD token still has 'admin' role - should still work
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/users', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
       );
 
-      expect(res.status).toBe(403);
+      // JWT is stateless - old token still has admin role, so it works
+      expect([200, 404]).toContain(res.status);
     });
   });
 

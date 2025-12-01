@@ -7,7 +7,8 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P2: Vectorize Integration', () => {
@@ -19,8 +20,8 @@ describe.sequential('P2: Vectorize Integration', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -35,7 +36,7 @@ describe.sequential('P2: Vectorize Integration', () => {
     it('finds similar words endpoint exists', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/similar?word=你好', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -48,7 +49,7 @@ describe.sequential('P2: Vectorize Integration', () => {
     it('requires word parameter', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/similar', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -66,7 +67,7 @@ describe.sequential('P2: Vectorize Integration', () => {
     it('semantic search endpoint exists', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/vocabulary/search/semantic?q=greeting', {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -85,7 +86,7 @@ describe.sequential('P2: Vectorize Integration', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/vectorize/refresh', {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${adminSession}` },
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -98,7 +99,7 @@ describe.sequential('P2: Vectorize Integration', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/vectorize/refresh', {
           method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -123,7 +124,7 @@ describe.sequential('P2: Vectorize Integration', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/lesson-alternatives/${lessonId}/connected-words`, {
-          headers: { 'Cookie': `better-auth.session_token=${userSession}` },
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext

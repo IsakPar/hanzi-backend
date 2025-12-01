@@ -8,9 +8,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 import { createTestStory } from '../fixtures/seed-data';
 
 describe.sequential('P1: Stories Comprehensive', () => {
@@ -22,8 +22,8 @@ describe.sequential('P1: Stories Comprehensive', () => {
     ctx = await createTestContext();
     const admin = await createAuthenticatedAdmin(ctx.db);
     const user = await createAuthenticatedUser(ctx.db);
-    adminSession = admin.sessionToken;
-    userSession = user.sessionToken;
+    adminSession = admin.accessToken;
+    userSession = user.accessToken;
   });
 
   afterEach(async () => {
@@ -56,7 +56,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -68,7 +68,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
     it('user cannot list stories (admin only)', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories', {
-          headers: authCookieHeaders(userSession),
+          headers: authBearerHeaders(userSession),
         }),
         ctx.env,
         executionContext
@@ -82,7 +82,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}`, {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -97,7 +97,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ title: 'Updated Title' }),
         }),
         ctx.env,
@@ -113,7 +113,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}`, {
           method: 'DELETE',
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -170,7 +170,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories?hsk_level=1', {
-          headers: authCookieHeaders(adminSession),
+          headers: authBearerHeaders(adminSession),
         }),
         ctx.env,
         executionContext
@@ -191,7 +191,7 @@ describe.sequential('P1: Stories Comprehensive', () => {
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${story.id}`, {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(adminSession),
+          headers: jsonAuthBearerHeaders(adminSession),
           body: JSON.stringify({ isPublished: true }),
         }),
         ctx.env,

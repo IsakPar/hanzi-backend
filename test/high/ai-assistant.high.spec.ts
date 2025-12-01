@@ -9,9 +9,9 @@ import { createTestContext, executionContext, type TestContext } from '../helper
 import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
-  authCookieHeaders,
-  jsonAuthCookieHeaders,
-} from '../fixtures/better-auth-helpers';
+  authBearerHeaders,
+  jsonAuthBearerHeaders,
+} from '../fixtures/jwt-auth-helpers';
 
 describe.sequential('AI Assistant API - High Priority', () => {
   let ctx: TestContext;
@@ -55,12 +55,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /ai/chat accepts authenticated request', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({ 
             message: 'How do you say hello in Chinese?',
             conversationId: crypto.randomUUID(),
@@ -75,12 +75,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('validates message is required', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/chat', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({}),
         }),
         ctx.env,
@@ -97,11 +97,11 @@ describe.sequential('AI Assistant API - High Priority', () => {
 
   describe('AI Models', () => {
     it('GET /models returns available models', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/models', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -121,12 +121,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /models creates model (admin)', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/models', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             id: 'claude-3',
             name: 'Claude 3',
@@ -144,12 +144,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('PUT /models/:id updates model', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/models/gpt-4', {
           method: 'PUT',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             isActive: false,
           }),
@@ -162,12 +162,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('DELETE /models/:id removes model', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/models/gpt-3.5', {
           method: 'DELETE',
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -190,11 +190,11 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('GET /ai/prompts lists templates', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -204,12 +204,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /ai/prompts creates template', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             slug: 'story_generator',
             body: 'Generate a story about {{topic}} for HSK {{level}}',
@@ -223,11 +223,11 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('GET /ai/prompts/:slug/versions returns versions', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts/lesson_default/versions', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -239,12 +239,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /ai/prompts/:slug/promote activates version', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/prompts/lesson_default/promote', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             version: 1,
             reason: 'Testing',
@@ -284,11 +284,11 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('GET /admin/ai-usage/summary returns usage stats', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/admin/ai-usage/summary', {
-          headers: authCookieHeaders(sessionToken),
+          headers: authBearerHeaders(sessionToken),
         }),
         ctx.env,
         executionContext
@@ -318,12 +318,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /ai/generate validates request', async () => {
-      const { sessionToken } = await createAuthenticatedAdmin(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai/generate', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({}),
         }),
         ctx.env,
@@ -369,12 +369,12 @@ describe.sequential('AI Assistant API - High Priority', () => {
     });
 
     it('POST /ai-tutor/generate validates focus words', async () => {
-      const { sessionToken } = await createAuthenticatedUser(ctx.db);
+      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/ai-tutor/generate', {
           method: 'POST',
-          headers: jsonAuthCookieHeaders(sessionToken),
+          headers: jsonAuthBearerHeaders(sessionToken),
           body: JSON.stringify({
             focusWords: [],
             userLessonPosition: 1,
