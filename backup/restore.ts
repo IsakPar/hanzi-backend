@@ -95,7 +95,9 @@ export async function executeRestore(
     // ─────────────────────────────────────────────────────────────────────────
     console.log('[RESTORE] Step 2: Downloading metadata...');
     
-    const metadataKey = generateMetadataKey(config.environment, backup_id);
+    // Use production environment for source (backups are always from production)
+    const sourceEnv = process.env.BACKUP_SOURCE_ENV || 'production';
+    const metadataKey = generateMetadataKey(sourceEnv, backup_id);
     const metadataJson = await downloadFromStorage(config, metadataKey);
     const metadata = parseMetadata(metadataJson.toString('utf-8'));
     
@@ -108,7 +110,7 @@ export async function executeRestore(
     // ─────────────────────────────────────────────────────────────────────────
     console.log('[RESTORE] Step 3: Downloading encrypted backup...');
     
-    const backupKey = generateStorageKey(config.environment, backup_id, 'd1');
+    const backupKey = generateStorageKey(sourceEnv, backup_id, 'd1');
     const encrypted = await downloadFromStorage(config, backupKey);
     
     console.log(`[RESTORE] Downloaded: ${formatBytes(encrypted.length)}`);
@@ -255,8 +257,9 @@ async function findLatestBackup(config: BackupConfig): Promise<string> {
     secretAccessKey: config.s3.secret_access_key,
   };
   
-  // List metadata files
-  const prefix = `env=${config.environment}/metadata/`;
+  // Always look for production backups (we restore production backups to staging)
+  const sourceEnv = process.env.BACKUP_SOURCE_ENV || 'production';
+  const prefix = `env=${sourceEnv}/metadata/`;
   console.log(`[RESTORE] Listing objects with prefix: ${prefix}`);
   
   const objects = await listS3Objects(s3Config, prefix);
