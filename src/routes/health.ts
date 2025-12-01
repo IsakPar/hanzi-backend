@@ -336,5 +336,202 @@ app.get('/endpoints', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) =>
   });
 });
 
+/**
+ * GET /health/test-all - Run comprehensive endpoint tests
+ * Tests all major endpoints and returns detailed results
+ */
+app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => {
+  const requestId = c.get('requestId');
+  const start = Date.now();
+  
+  logWithContext('info', 'health.test_all_start', { requestId });
+
+  const results: EndpointTest[] = [];
+  const baseUrl = (c.env as Record<string, unknown>).PORTAL_URL 
+    ? 'https://api.studio.polymasterlabs.com'
+    : 'http://localhost:8787';
+  const cdnUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
+
+  // Helper function to test an endpoint
+  async function testEndpoint(name: string, path: string, method: string, options: RequestInit = {}): Promise<EndpointTest> {
+    const testStart = Date.now();
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        ...options,
+      });
+      
+      return {
+        name,
+        path,
+        method,
+        status: response.ok ? 'pass' : 'fail',
+        responseTime: Date.now() - testStart,
+        details: `HTTP ${response.status}`,
+      };
+    } catch (err) {
+      return {
+        name,
+        path,
+        method,
+        status: 'fail',
+        responseTime: Date.now() - testStart,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  // Helper for internal tests (using c.env directly)
+  async function testInternal(name: string, test: () => Promise<void>): Promise<EndpointTest> {
+    const testStart = Date.now();
+    try {
+      await test();
+      return {
+        name,
+        path: 'internal',
+        method: 'INTERNAL',
+        status: 'pass',
+        responseTime: Date.now() - testStart,
+      };
+    } catch (err) {
+      return {
+        name,
+        path: 'internal',
+        method: 'INTERNAL',
+        status: 'fail',
+        responseTime: Date.now() - testStart,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  // ===== 1. PUBLIC ENDPOINTS =====
+  results.push(await testEndpoint('Health Check', '/v1/health', 'GET'));
+  results.push(await testEndpoint('Vocabulary List', '/v1/vocabulary', 'GET'));
+  results.push(await testEndpoint('Vocabulary Single', '/v1/vocabulary?limit=1', 'GET'));
+  results.push(await testEndpoint('HSK1 Curriculum', '/v1/curriculum/hsk/1', 'GET'));
+
+  // ===== 2. INTERNAL SERVICE TESTS =====
+  
+  // Database tables
+  const tables = ['vocabulary', 'lessons', 'stories', 'waitlist', 'ba_user', 'lesson_blocks'];
+  for (const table of tables) {
+    results.push(await testInternal(`DB Table: ${table}`, async () => {
+      const db = drizzle(c.env.DB);
+      const result = await db.run(sql.raw(`SELECT COUNT(*) as count FROM ${table}`));
+      const count = (result.results?.[0] as any)?.count;
+      if (count === undefined) throw new Error('No count returned');
+    }));
+  }
+
+  // R2 Bucket
+  results.push(await testInternal('R2 Bucket List', async () => {
+    const list = await c.env.CONTENT_BUCKET.list({ limit: 1 });
+  }));
+
+  // R2 Bucket - Check for audio folder
+  results.push(await testInternal('R2 Audio Folder', async () => {
+    const list = await c.env.CONTENT_BUCKET.list({ prefix: 'audio/', limit: 5 });
+    if (list.objects.length === 0) {
+      throw new Error('No audio files found in R2');
+    }
+  }));
+
+  // KV Store
+  if (c.env.RATE_LIMIT_KV) {
+    results.push(await testInternal('KV Store', async () => {
+      await c.env.RATE_LIMIT_KV.get('health_test');
+    }));
+  }
+
+  // Vectorize
+  if (c.env.VECTORIZE) {
+    results.push(await testInternal('Vectorize Index', async () => {
+      await c.env.VECTORIZE.describe();
+    }));
+  }
+
+  // ===== 3. CDN TESTS =====
+  results.push(await testEndpoint('CDN Root', cdnUrl, 'HEAD'));
+  
+  // Test a known audio file (if we have vocab with audio)
+  try {
+    const db = drizzle(c.env.DB);
+    const vocabWithAudio = await db.run(sql`
+      SELECT word_audio_r2_key FROM vocabulary 
+      WHERE word_audio_r2_key IS NOT NULL 
+      LIMIT 1
+    `);
+    if (vocabWithAudio.results && vocabWithAudio.results.length > 0) {
+      const audioKey = (vocabWithAudio.results[0] as any).word_audio_r2_key;
+      if (audioKey) {
+        results.push(await testEndpoint('CDN Audio File', `${cdnUrl}/${audioKey}`, 'HEAD'));
+      }
+    }
+  } catch {
+    results.push({
+      name: 'CDN Audio File',
+      path: cdnUrl,
+      method: 'HEAD',
+      status: 'skip',
+      details: 'No vocab with audio found',
+    });
+  }
+
+  // ===== 4. EXTERNAL API TESTS =====
+  
+  // ElevenLabs API (just check if configured)
+  const elevenLabsKey = (c.env as Record<string, unknown>).ELEVENLABS_API_KEY;
+  if (elevenLabsKey) {
+    results.push(await testEndpoint(
+      'ElevenLabs Voices',
+      'https://api.elevenlabs.io/v1/voices',
+      'GET',
+      { headers: { 'xi-api-key': elevenLabsKey as string } }
+    ));
+  } else {
+    results.push({
+      name: 'ElevenLabs API',
+      path: 'ELEVENLABS_API_KEY',
+      method: 'CONFIG',
+      status: 'skip',
+      details: 'Not configured',
+    });
+  }
+
+  // OpenRouter/AI API (just check if key exists)
+  const aiKey = (c.env as Record<string, unknown>).OPENROUTER_API_KEY || (c.env as Record<string, unknown>).OPENAI_API_KEY;
+  results.push({
+    name: 'AI API Key',
+    path: 'OPENROUTER/OPENAI',
+    method: 'CONFIG',
+    status: aiKey ? 'pass' : 'fail',
+    details: aiKey ? 'Configured' : 'Missing OPENROUTER_API_KEY or OPENAI_API_KEY',
+  });
+
+  // ===== SUMMARY =====
+  const passed = results.filter(r => r.status === 'pass').length;
+  const failed = results.filter(r => r.status === 'fail').length;
+  const skipped = results.filter(r => r.status === 'skip').length;
+  const overall = failed === 0 ? 'healthy' : failed <= 3 ? 'degraded' : 'unhealthy';
+
+  logWithContext('info', 'health.test_all_complete', {
+    requestId,
+    meta: { passed, failed, skipped, overall, duration: Date.now() - start },
+  });
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    duration: Date.now() - start,
+    overall,
+    summary: { passed, failed, skipped, total: results.length },
+    results,
+  });
+});
+
 export default app;
 
