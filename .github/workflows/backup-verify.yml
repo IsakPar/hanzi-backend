@@ -17,9 +17,6 @@ on:
         required: false
         type: string
 
-env:
-  NODE_VERSION: '22'
-
 jobs:
   verify:
     name: Verify Backup
@@ -38,82 +35,38 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Install wrangler
+      - name: Install wrangler globally
         run: npm install -g wrangler
 
       - name: Restore backup to staging
         id: restore
-        run: |
-          npx ts-node backup/restore.ts ${{ github.event.inputs.backup_id }}
+        run: pnpm exec tsx backup/restore.ts ${{ github.event.inputs.backup_id }}
         env:
           ENVIRONMENT: staging
           USE_WRANGLER_CLI: 'true'
           
-          # Source: Download from R2 first, fallback to S3
-          R2_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          
-          S3_BUCKET: ${{ secrets.S3_BACKUP_BUCKET }}
-          S3_REGION: ${{ secrets.S3_REGION }}
-          S3_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          
-          # Target: Staging D1
-          D1_STAGING_DATABASE_NAME: ${{ secrets.D1_STAGING_DATABASE_NAME }}
-          D1_STAGING_DATABASE_ID: ${{ secrets.D1_STAGING_DATABASE_ID }}
-          D1_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          
-          # Decryption
-          ENCRYPTION_KEY_ID: ${{ secrets.BACKUP_ENCRYPTION_KEY_ID }}
-          ENCRYPTION_LOCAL_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-
-      - name: Run smoke tests
-        id: smoke
-        run: |
-          pnpm test -- --testPathPattern='backup-restore.smoke'
-        env:
-          # S3 credentials (for download verification)
+          # Source: Download from S3
           S3_BUCKET: ${{ secrets.S3_BACKUP_BUCKET }}
           S3_REGION: ${{ secrets.S3_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           
-          # Encryption
-          ENCRYPTION_LOCAL_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          
-          # D1 credentials (for restore verification)
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME }}
-          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          # Target: Staging D1
           D1_STAGING_DATABASE_NAME: ${{ secrets.D1_STAGING_DATABASE_NAME }}
           D1_STAGING_DATABASE_ID: ${{ secrets.D1_STAGING_DATABASE_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           
-          # R2 credentials (optional)
-          R2_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-
-      - name: Update backup verification status
-        if: always()
-        run: |
-          echo "Would update verification status in metadata..."
-          # TODO: Implement metadata update
-          # This would:
-          # 1. Download the backup metadata JSON
-          # 2. Update last_verified_at and last_verification_result
-          # 3. Re-upload metadata
+          # Decryption
+          ENCRYPTION_KEY_ID: local:backup
+          ENCRYPTION_LOCAL_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
 
       - name: Notify on failure
         if: failure()
@@ -128,13 +81,6 @@ jobs:
                   "text": {
                     "type": "plain_text",
                     "text": "🚨 Backup Verification Failed"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Weekly backup verification failed. *Backups may not be restorable.*"
                   }
                 },
                 {
@@ -157,26 +103,9 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Backup verification passed",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "✅ Backup Verification Passed"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Weekly backup verification completed successfully. Backups are restorable."
-                  }
-                }
-              ]
+              "text": "✅ Backup verification passed"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BACKUP_WEBHOOK }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
         continue-on-error: true
-

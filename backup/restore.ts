@@ -308,20 +308,24 @@ async function decryptPayload(
   const keyMaterial = await getDecryptionKey(config, metadata.encryption_key_id);
   const key = await crypto.subtle.importKey(
     'raw',
-    keyMaterial,
+    new Uint8Array(keyMaterial).buffer,
     { name: 'AES-GCM', length: 256 },
     false,
     ['decrypt']
   );
   
   // Decode IV
-  const iv = Buffer.from(metadata.encryption_iv, 'base64');
+  const ivBuffer = Buffer.from(metadata.encryption_iv, 'base64');
+  const iv = new Uint8Array(ivBuffer).buffer;
+  
+  // Convert encrypted to ArrayBuffer
+  const encryptedArrayBuffer = new Uint8Array(encrypted).buffer;
   
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
     key,
-    encrypted
+    encryptedArrayBuffer
   );
   
   return Buffer.from(decrypted);
@@ -403,7 +407,8 @@ async function getD1RowCounts(config: BackupConfig): Promise<D1RowCounts> {
 // ============================================================================
 
 async function sha256(data: Buffer): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const arrayBuffer = new Uint8Array(data).buffer;
+  const hash = await crypto.subtle.digest('SHA-256', arrayBuffer);
   return Buffer.from(hash).toString('hex');
 }
 
