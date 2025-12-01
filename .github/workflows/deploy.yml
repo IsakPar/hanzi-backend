@@ -291,7 +291,8 @@ jobs:
 
     steps:
       - name: Slack - Production deployed
-        if: needs.deploy-production.result == 'success' && secrets.SLACK_DEPLOY_WEBHOOK
+        if: needs.deploy-production.result == 'success'
+        continue-on-error: true
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
@@ -312,7 +313,8 @@ jobs:
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
       - name: Slack - Staging tests failed
-        if: needs.k6-staging.result == 'failure' && secrets.SLACK_DEPLOY_WEBHOOK
+        if: needs.k6-staging.result == 'failure'
+        continue-on-error: true
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
