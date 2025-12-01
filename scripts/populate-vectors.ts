@@ -29,7 +29,7 @@ const app = new Hono<{ Bindings: Env }>();
  */
 app.post('/populate', async (c) => {
   const db = drizzle(c.env.DB, { schema });
-  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, 'populate-script');
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI as any, 'populate-script');
   
   const results = {
     vocabulary: { success: 0, failed: 0 },
@@ -123,7 +123,7 @@ app.post('/populate', async (c) => {
  * GET /stats - Get Vectorize index stats
  */
 app.get('/stats', async (c) => {
-  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, 'stats');
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI as any, 'stats');
   
   try {
     const stats = await vectorize.getStats();
@@ -143,7 +143,7 @@ app.post('/test-search', async (c) => {
     return c.json({ error: 'Query required' }, 400);
   }
   
-  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI, 'test-search');
+  const vectorize = new VectorizeService(c.env.VECTORIZE, c.env.AI as any, 'test-search');
   
   try {
     const results = await vectorize.search(query, {

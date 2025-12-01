@@ -118,7 +118,12 @@ app.post('/:id/segments/bulk', zValidator('json', bulkSegmentsSchema), async (c)
   const { stories } = getServices(c.env);
 
   try {
-    const result = await stories.bulkSaveSegments(storyId, segments);
+    // Add orderIndex based on array position
+    const segmentsWithOrder = segments.map((seg, idx) => ({
+      ...seg,
+      orderIndex: idx,
+    }));
+    const result = await stories.bulkSaveSegments(storyId, segmentsWithOrder);
     return c.json({ success: true, ...result });
   } catch (err) {
     logWithContext('error', 'stories.segments.bulk_failed', {

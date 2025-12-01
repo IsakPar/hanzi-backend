@@ -242,6 +242,70 @@ export class StoriesService {
         );
     }
   }
+  
+  /**
+   * Bulk save segments (sentences) - creates new, updates existing, deletes removed
+   * "Segments" is an alias for sentences used in the content editor
+   */
+  async bulkSaveSegments(
+    storyId: string,
+    segments: Array<{
+      id?: string;
+      chinese: string;
+      pinyin: string;
+      english: string;
+      orderIndex: number;
+      audioR2Key?: string;
+    }>
+  ): Promise<{ created: number; updated: number; deleted: number }> {
+    // Get existing sentences
+    const existing = await this.getSentences(storyId);
+    const existingIds = new Set(existing.map(s => s.id));
+    const incomingIds = new Set(segments.filter(s => s.id).map(s => s.id!));
+    
+    let created = 0;
+    let updated = 0;
+    let deleted = 0;
+    
+    // Delete sentences that are no longer in the list
+    for (const sentence of existing) {
+      if (!incomingIds.has(sentence.id)) {
+        await this.deleteSentence(sentence.id);
+        deleted++;
+      }
+    }
+    
+    // Create or update segments
+    for (const segment of segments) {
+      if (segment.id && existingIds.has(segment.id)) {
+        // Update existing
+        await this.updateSentence(segment.id, {
+          chinese: segment.chinese,
+          pinyin: segment.pinyin,
+          english: segment.english,
+          orderIndex: segment.orderIndex,
+          audioR2Key: segment.audioR2Key,
+        });
+        updated++;
+      } else {
+        // Create new
+        const id = segment.id || nanoid();
+        await this.db.insert(storySentences).values({
+          id,
+          storyId,
+          orderIndex: segment.orderIndex,
+          chinese: segment.chinese,
+          pinyin: segment.pinyin,
+          english: segment.english,
+          audioR2Key: segment.audioR2Key,
+          createdAt: new Date(),
+        });
+        created++;
+      }
+    }
+    
+    return { created, updated, deleted };
+  }
 
   // --- VOCABULARY ---
 

@@ -354,11 +354,13 @@ export async function decideTools(
       };
     }
 
-    // Parse tool calls
-    const toolCalls = msg.tool_calls.map(tc => ({
-      name: tc.function.name,
-      args: safeParseArgs(tc.function.arguments),
-    }));
+    // Parse tool calls - handle both standard and custom tool call formats
+    const toolCalls = msg.tool_calls.map(tc => {
+      const toolCall = tc as { function?: { name: string; arguments: string }; name?: string; arguments?: string };
+      const name = toolCall.function?.name || toolCall.name || 'unknown';
+      const args = safeParseArgs(toolCall.function?.arguments || toolCall.arguments || '{}');
+      return { name, args };
+    });
 
     logWithContext('info', 'ai.orchestrator.tools_decided', {
       requestId,

@@ -963,7 +963,7 @@ export async function cleanupOldEngagementEvents(
       lte(engagementEventsRaw.createdAt, new Date(cutoffTimestamp * 1000))
     ));
 
-  return { deleted: result.rowsAffected || 0 };
+  return { deleted: (result as { rowCount?: number }).rowCount || 0 };
 }
 
 // ═══════════════════════════════════════════════════════════

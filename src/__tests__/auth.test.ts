@@ -125,7 +125,7 @@ describe('Authentication', () => {
       const user: AppUser = { id: '1', role: 'user', tier: 'free' };
       const allowedRoles: AppUser['role'][] | undefined = undefined;
 
-      const hasAccess = !allowedRoles || allowedRoles.includes(user.role);
+      const hasAccess = !allowedRoles || (allowedRoles as ('admin' | 'user')[]).includes(user.role);
       expect(hasAccess).toBe(true);
     });
   });
@@ -175,9 +175,9 @@ describe('Authentication', () => {
     });
 
     it('should reject missing Authorization header', () => {
-      const header: string | undefined = undefined;
+      const header = undefined as string | undefined;
       
-      const isValid = header && header.startsWith('Bearer ');
+      const isValid = typeof header === 'string' && header.startsWith('Bearer ');
       expect(isValid).toBeFalsy();
     });
   });

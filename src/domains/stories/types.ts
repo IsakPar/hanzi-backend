@@ -97,6 +97,7 @@ export interface UpdateSentenceParams {
   chinese?: string;
   pinyin?: string;
   english?: string;
+  orderIndex?: number;
   audioR2Key?: string;
 }
 

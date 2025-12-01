@@ -303,6 +303,8 @@ app.get('/cost-summary', async (c) => {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
+    type LogStats = { input_tokens: number; output_tokens: number; total_cost: number; request_count: number };
+    
     // Query ai_logs table for token usage
     const logs7Days = await c.env.DB.prepare(`
       SELECT 
@@ -312,7 +314,7 @@ app.get('/cost-summary', async (c) => {
         COUNT(*) as request_count
       FROM ai_logs 
       WHERE created_at >= ?
-    `).bind(Math.floor(sevenDaysAgo.getTime() / 1000)).first();
+    `).bind(Math.floor(sevenDaysAgo.getTime() / 1000)).first<LogStats>();
     
     const logs30Days = await c.env.DB.prepare(`
       SELECT 
@@ -322,7 +324,7 @@ app.get('/cost-summary', async (c) => {
         COUNT(*) as request_count
       FROM ai_logs 
       WHERE created_at >= ?
-    `).bind(Math.floor(thirtyDaysAgo.getTime() / 1000)).first();
+    `).bind(Math.floor(thirtyDaysAgo.getTime() / 1000)).first<LogStats>();
     
     return c.json({
       last7Days: {

@@ -198,10 +198,11 @@ app.put('/:id/import', zValidator('json', storyImportSchema, (result, c) => {
     } as any);
 
     // Replace all segments using bulk save
-    const segmentsForBulk = data.segments.map((seg) => ({
+    const segmentsForBulk = data.segments.map((seg, idx) => ({
       chinese: seg.chinese,
       pinyin: seg.pinyin,
       english: seg.english,
+      orderIndex: idx,
     }));
 
     // Delete existing and create new

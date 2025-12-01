@@ -204,8 +204,8 @@ export default {
         env.CONTENT_BUCKET,
         (message, meta) => logWithContext('info', message, { meta })
       ).then((response: Response) => {
-        return response.json().then((data) => {
-          logWithContext('info', 'cron.cleanup_complete', { meta: data });
+        return response.json().then((data: unknown) => {
+          logWithContext('info', 'cron.cleanup_complete', { meta: data as Record<string, unknown> });
         });
       })
     );

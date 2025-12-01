@@ -162,16 +162,21 @@ app.post('/test-prompt', zValidator('json', testPromptSchema), async (c) => {
 
     if (isPipeline) {
       // ========== PIPELINE EXECUTION ==========
+      const apiKey = config.secrets.openRouterApiKey || config.secrets.openAIApiKey;
+      if (!apiKey) {
+        return c.json({ error: 'API key not configured' }, 500);
+      }
+      
       const executor = new PipelineExecutor(
         db,
-        config.secrets.openAIApiKey,
+        apiKey,
         config.openaiBaseUrl,
         requestId
       );
 
       const result = await executor.execute({
         db,
-        openaiApiKey: config.secrets.openAIApiKey,
+        openaiApiKey: apiKey,
         openaiBaseUrl: config.openaiBaseUrl,
         requestId,
         steps: promptRecord.steps as PipelineStep[],
@@ -478,12 +483,17 @@ app.post('/chat', zValidator('json', chatSchema), async (c) => {
   if (!user) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
+  
+  const chatApiKey = config.secrets.openRouterApiKey || config.secrets.openAIApiKey;
+  if (!chatApiKey) {
+    return c.json({ error: 'Chat API key not configured' }, 500);
+  }
 
   try {
     // Create chat service with Vectorize bindings
     const chatService = new AIChatService(
       c.env.DB,
-      config.secrets.openRouterApiKey || config.secrets.openAIApiKey,
+      chatApiKey,
       requestId,
       c.env.VECTORIZE, // Vectorize index
       c.env.AI         // Workers AI for embeddings

@@ -81,7 +81,7 @@ validatorRouter.post('/sync', jwtAuthMiddleware({ allowRoles: ['admin'] }), asyn
       },
     });
     
-    const data = await response.json();
+    const data = await response.json() as { detail?: string; [key: string]: unknown };
     
     if (!response.ok) {
       return c.json({ error: data.detail || 'Sync failed' }, response.status as 400 | 500);

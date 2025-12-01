@@ -52,7 +52,8 @@ Output ONLY this JSON, nothing else:
     const rawContent = completion.choices[0]?.message?.content || '';
     const tokensUsed = completion.usage?.total_tokens || 0;
 
-    logWithContext('debug', 'vocab.generate_example.raw_response', {
+    // Note: using 'info' instead of 'debug' since LogLevel doesn't support 'debug'
+    logWithContext('info', 'vocab.generate_example.raw_response', {
       requestId,
       meta: { content: rawContent.substring(0, 500) },
     });
