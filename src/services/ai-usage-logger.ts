@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 /**
  * AI Usage Logger
  * 
@@ -43,10 +44,12 @@ export interface AIUsageEntry {
   endpoint?: string;
   inputTokens: number;
   outputTokens: number;
+  cost?: number;
   latencyMs?: number;
   success?: boolean;
   errorMessage?: string;
   metadata?: Record<string, unknown>;
+  requestType?: string;
 }
 
 export class AIUsageLogger {

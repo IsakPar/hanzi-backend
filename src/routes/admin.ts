@@ -197,7 +197,7 @@ app.get('/lessons', async (c) => {
         description: lessons.description,
         estimatedMinutes: lessons.estimatedMinutes,
         isPublished: lessons.isPublished,
-        version: lessons.version,
+        contentVersion: lessons.contentVersion,
         createdAt: lessons.createdAt,
         updatedAt: lessons.updatedAt,
       })

@@ -32,6 +32,7 @@ export type AppBindings = {
   // OpenRouter
   OPENROUTER_API_KEY?: string;
   VALIDATOR_URL?: string;
+  VALIDATOR_API_KEY?: string;
   // RevenueCat
   REVENUECAT_PUBLIC_API_KEY?: string;
   REVENUECAT_SECRET_API_KEY?: string;

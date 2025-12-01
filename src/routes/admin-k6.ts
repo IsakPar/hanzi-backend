@@ -6,7 +6,9 @@
  */
 
 import { Hono } from 'hono';
-import type { AppContext } from '../types';
+import type { AppEnv } from '../types/app';
+
+type AppContext = AppEnv;
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { adminRateLimit } from '../middleware/rate-limit';
 

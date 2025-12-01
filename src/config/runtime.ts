@@ -3,7 +3,8 @@ import type { AppBindings } from '../types/app';
 
 const envSchema = z.object({
   ADMIN_SECRET: z.string().min(1, 'ADMIN_SECRET is required'),
-  OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
+  OPENAI_API_KEY: z.string().optional(), // Legacy - prefer OPENROUTER_API_KEY
+  OPENROUTER_API_KEY: z.string().optional(),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_MAX_AGE: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
@@ -26,7 +27,8 @@ const envSchema = z.object({
 export type RuntimeConfig = {
   secrets: {
     adminSecret: string;
-    openAIApiKey: string;
+    openAIApiKey?: string;
+    openRouterApiKey?: string;
     jwtSecret: string;
     clerkPublishableKey?: string;
     clerkSecretKey?: string;
@@ -68,6 +70,7 @@ export const resolveRuntimeConfig = (bindings: AppBindings): RuntimeConfig => {
     secrets: {
       adminSecret: parsed.ADMIN_SECRET,
       openAIApiKey: parsed.OPENAI_API_KEY,
+      openRouterApiKey: parsed.OPENROUTER_API_KEY,
       jwtSecret: parsed.JWT_SECRET,
       clerkPublishableKey: parsed.CLERK_PUBLISHABLE_KEY,
       clerkSecretKey: parsed.CLERK_SECRET_KEY,

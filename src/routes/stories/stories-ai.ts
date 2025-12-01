@@ -79,6 +79,11 @@ app.post('/:id/generate-practice', zValidator('json', generatePracticeSchema), a
   const { createPromptsDomain } = await import('../../domains/prompts');
   const { prompts } = createPromptsDomain(c.env);
 
+  const openrouterApiKey = c.env.OPENROUTER_API_KEY;
+  if (!openrouterApiKey) {
+    return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
+  }
+
   try {
     const story = await stories.getStoryWithDetails(storyId);
     if (!story) {
@@ -112,7 +117,7 @@ Generate ${count} practice blocks of these types: ${blockTypes.join(', ')}
 Return a JSON array of blocks.`;
 
     const resolvedModel = resolveModel(model);
-    const openrouter = createOpenRouterClient(c.env.OPENROUTER_API_KEY);
+    const openrouter = createOpenRouterClient(openrouterApiKey);
 
     const startTime = Date.now();
     const response = await openrouter.chat.completions.create({

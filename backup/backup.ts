@@ -345,17 +345,18 @@ async function encryptPayload(
   const keyMaterial = await getEncryptionKey(config);
   const key = await crypto.subtle.importKey(
     'raw',
-    keyMaterial,
+    keyMaterial.buffer.slice(keyMaterial.byteOffset, keyMaterial.byteOffset + keyMaterial.byteLength) as ArrayBuffer,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt']
   );
   
-  // Encrypt
+  // Encrypt - convert Buffer to ArrayBuffer
+  const payloadBuffer = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer;
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
-    payload
+    payloadBuffer
   );
   
   // AES-GCM appends auth tag to ciphertext
@@ -431,7 +432,8 @@ async function uploadBackupToS3(
 // ============================================================================
 
 async function sha256(data: Buffer): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const dataBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  const hash = await crypto.subtle.digest('SHA-256', dataBuffer);
   return Buffer.from(hash).toString('hex');
 }
 

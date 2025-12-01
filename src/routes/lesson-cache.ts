@@ -447,6 +447,11 @@ app.post('/:lesson/generate', zValidator('json', generateSchema), async (c) => {
   }
 
   const cache = getCacheService(c.env, requestId);
+  
+  const openrouterApiKey = c.env.OPENROUTER_API_KEY;
+  if (!openrouterApiKey) {
+    return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
+  }
 
   try {
     // Generate using AI at a higher "fake" lesson number (so it passes validation)
@@ -456,7 +461,7 @@ app.post('/:lesson/generate', zValidator('json', generateSchema), async (c) => {
     const generator = new LessonGenerator({
       db: c.env.DB,
       bucket: c.env.CONTENT_BUCKET,
-      openrouterApiKey: c.env.OPENROUTER_API_KEY,
+      openrouterApiKey,
       validatorUrl: c.env.VALIDATOR_URL || 'https://hanzi-vocab-val-u53gq.sevalla.app',
       requestId,
     });
@@ -487,7 +492,7 @@ app.post('/:lesson/generate', zValidator('json', generateSchema), async (c) => {
     
     if (includePractice) {
       const practiceResult = await generatePracticeBlocks(
-        c.env.OPENROUTER_API_KEY,
+        openrouterApiKey,
         result.lesson.chinese,
         result.lesson.pinyin,
         result.lesson.english,
@@ -560,6 +565,11 @@ app.post('/:lesson/generate-practice', zValidator('json', generatePracticeSchema
   }
 
   const cache = getCacheService(c.env, requestId);
+  
+  const openrouterApiKey = c.env.OPENROUTER_API_KEY;
+  if (!openrouterApiKey) {
+    return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
+  }
 
   try {
     // Get existing lesson
@@ -570,7 +580,7 @@ app.post('/:lesson/generate-practice', zValidator('json', generatePracticeSchema
 
     // Generate practice materials
     const { practice, cost } = await generatePracticeBlocks(
-      c.env.OPENROUTER_API_KEY,
+      openrouterApiKey,
       existing.chinese,
       existing.pinyin,
       existing.english,
@@ -614,6 +624,11 @@ app.post('/:lesson/generate-practice', zValidator('json', generatePracticeSchema
 app.post('/bulk-generate', zValidator('json', bulkGenerateSchema), async (c) => {
   const requestId = c.get('requestId') || crypto.randomUUID();
   const { lessons, autoApprove } = c.req.valid('json');
+  
+  const openrouterApiKey = c.env.OPENROUTER_API_KEY;
+  if (!openrouterApiKey) {
+    return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
+  }
 
   const results: Array<{
     lessonNumber: number;
@@ -633,7 +648,7 @@ app.post('/bulk-generate', zValidator('json', bulkGenerateSchema), async (c) => 
       const generator = new LessonGenerator({
         db: c.env.DB,
         bucket: c.env.CONTENT_BUCKET,
-        openrouterApiKey: c.env.OPENROUTER_API_KEY,
+        openrouterApiKey,
         validatorUrl: c.env.VALIDATOR_URL || 'https://hanzi-vocab-val-u53gq.sevalla.app',
         requestId,
       });

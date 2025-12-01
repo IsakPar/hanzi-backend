@@ -88,7 +88,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run unit tests
-        run: pnpm test -- --testPathPattern='unit|\.unit\.' --reporter=verbose
+        run: pnpm test -- test/unit --reporter=verbose
         env:
           JWT_SECRET: test-secret-for-ci-only-not-production
 
@@ -121,7 +121,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run full test suite
-        run: pnpm test
+        run: pnpm test -- --maxWorkers=4 --pool=threads
         env:
           JWT_SECRET: test-secret-for-ci-only-not-production
 

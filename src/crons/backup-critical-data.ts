@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 /**
  * Critical Data Backup Cron
  * Exports waitlist, users, and subscription data to R2 daily

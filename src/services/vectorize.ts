@@ -59,7 +59,7 @@ export class VectorizeService {
     try {
       const result = await this.ai.run('@cf/baai/bge-base-en-v1.5', {
         text: [text],
-      });
+      }) as any;
       
       // Workers AI returns { data: [[...embeddings]] }
       if (result?.data?.[0]) {
@@ -83,7 +83,7 @@ export class VectorizeService {
     try {
       const result = await this.ai.run('@cf/baai/bge-base-en-v1.5', {
         text: texts,
-      });
+      }) as any;
       
       if (result?.data) {
         return result.data as number[][];
@@ -305,11 +305,12 @@ export class VectorizeService {
    * Get index statistics
    */
   async getStats(): Promise<{ vectorCount: number; dimensions: number }> {
+    // Note: VectorizeIndexDetails uses 'vectorsCount' not 'vectorCount'
     try {
       const info = await this.vectorize.describe();
       return {
-        vectorCount: info.vectorCount || 0,
-        dimensions: info.dimensions || 768,
+        vectorCount: (info as any).vectorsCount || 0,
+        dimensions: (info as any).config?.dimensions || 768,
       };
     } catch (err) {
       logWithContext('error', 'vectorize.stats_failed', {

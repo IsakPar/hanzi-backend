@@ -401,11 +401,11 @@ export class AITutorGenerator {
     
     for (const word of focusWords) {
       try {
-        const similar = await this.vectorizeService.searchSimilar(word, 10);
+        const similar = await this.vectorizeService.search(word, { topK: 10 });
         // Filter to only include words in allowed vocabulary
         const filtered = similar
-          .filter(s => allowedSet.has(s.hanzi) && s.hanzi !== word)
-          .map(s => s.hanzi)
+          .filter((s: any) => s.metadata?.hanzi && allowedSet.has(s.metadata.hanzi) && s.metadata.hanzi !== word)
+          .map((s: any) => s.metadata.hanzi as string)
           .slice(0, 5);
         alternatives.set(word, filtered);
       } catch {

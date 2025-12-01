@@ -9,7 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq, desc, asc } from 'drizzle-orm';
 import * as schema from '../schema';
-import type { AppEnv } from '../types/env';
+import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { logWithContext } from '../utils/logger';
 import { aiRateLimit } from '../middleware/rate-limit';

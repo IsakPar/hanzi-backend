@@ -436,9 +436,10 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
   }));
 
   // KV Store
-  if (c.env.RATE_LIMIT_KV) {
+  const kvStore = c.env.RATE_LIMIT_KV;
+  if (kvStore) {
     results.push(await testInternal('KV Store', 'RATE_LIMIT_KV', async () => {
-      await c.env.RATE_LIMIT_KV.get('health_test');
+      await kvStore.get('health_test');
       return 'OK';
     }));
   } else {
@@ -455,7 +456,7 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
   if (c.env.VECTORIZE) {
     results.push(await testInternal('Vectorize Index', 'VECTORIZE', async () => {
       const info = await c.env.VECTORIZE.describe();
-      return `${info.vectorCount || 0} vectors`;
+      return `${(info as any).vectorsCount || 0} vectors`;
     }));
   } else {
     results.push({

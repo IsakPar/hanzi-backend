@@ -42,7 +42,7 @@ app.get('/suggest-for-word', async (c) => {
       try {
         const vectorizeService = new VectorizeService(c.env.VECTORIZE, c.env.AI);
         const searchQuery = `${sourceWord.hanzi} ${sourceWord.english}`;
-        const results = await vectorizeService.searchSimilar(searchQuery, limit * 2);
+        const results = await vectorizeService.search(searchQuery, { topK: limit * 2 });
 
         // Get word data for results
         const allVocab = await db.select()
@@ -311,7 +311,7 @@ app.get('/slots/:slotId/suggest-alternatives', async (c) => {
     
     // Create search query from word context
     const searchQuery = `${word[0].hanzi} ${word[0].english}`;
-    const results = await vectorizeService.searchSimilar(searchQuery, limit * 2);
+    const results = await vectorizeService.search(searchQuery, { topK: limit * 2 });
 
     // Fetch full word data for results
     const wordIds = results.map(r => r.id);
@@ -466,7 +466,7 @@ app.get('/blocks/:blockId/suggest-connected', async (c) => {
     
     // Search for words related to the sentence context
     const searchQuery = slotWords.map(w => w.hanzi + ' ' + w.english).join(' ');
-    const results = await vectorizeService.searchSimilar(searchQuery, limit * 3);
+    const results = await vectorizeService.search(searchQuery, { topK: limit * 3 });
 
     // Get full word data
     const allVocab = await db.select()
