@@ -429,8 +429,8 @@ async function main() {
     d1: {
       database_name: process.env.D1_STAGING_DATABASE_NAME || process.env.D1_DATABASE_NAME || 'hanzimaster-db-staging',
       database_id: process.env.D1_STAGING_DATABASE_ID || process.env.D1_DATABASE_ID || '',
-      api_token: process.env.D1_API_TOKEN || '',
-      account_id: process.env.CF_ACCOUNT_ID || '',
+      api_token: process.env.CLOUDFLARE_API_TOKEN || process.env.D1_API_TOKEN || '',
+      account_id: process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '',
     },
     
     r2: {

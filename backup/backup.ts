@@ -470,8 +470,8 @@ async function main() {
     d1: {
       database_name: process.env.D1_DATABASE_NAME || 'hanzimaster-db',
       database_id: process.env.D1_DATABASE_ID || '',
-      api_token: process.env.D1_API_TOKEN || '',
-      account_id: process.env.CF_ACCOUNT_ID || '',
+      api_token: process.env.CLOUDFLARE_API_TOKEN || process.env.D1_API_TOKEN || '',
+      account_id: process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '',
     },
     
     r2: {
@@ -515,8 +515,13 @@ async function main() {
   }
 }
 
-// Only run if this is the main module
-if (require.main === module) {
+// Run if invoked directly
+// Works with both CommonJS (require.main) and ESM (import.meta)
+const isMainModule = typeof require !== 'undefined' 
+  ? require.main === module 
+  : import.meta.url === `file://${process.argv[1]}`;
+
+if (isMainModule || process.argv[1]?.includes('backup.ts') || process.argv[1]?.includes('backup/backup')) {
   main().catch((err) => {
     console.error('Unhandled error:', err);
     process.exit(1);
