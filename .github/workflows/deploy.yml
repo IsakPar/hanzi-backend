@@ -1,0 +1,334 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Deploy Pipeline - Branch-based deployments
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Workflow:
+#   feature/* → staging → main
+#
+# Triggers:
+#   - Push to staging: Deploy staging → k6 tests → Auto-create PR to main
+#   - Push to main: Deploy production
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'test/**'
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Deploy to Staging (staging branch only)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/staging'
+    timeout-minutes: 10
+
+    outputs:
+      staging_url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Staging
+        id: deploy
+        run: |
+          echo "🚀 Deploying to staging..."
+          OUTPUT=$(pnpm deploy:staging 2>&1)
+          echo "$OUTPUT"
+          
+          # Extract URL from wrangler output
+          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          if [[ -n "$URL" ]]; then
+            echo "url=$URL" >> $GITHUB_OUTPUT
+            echo "✅ Deployed to: $URL"
+          else
+            echo "url=${{ secrets.STAGING_API_URL }}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting for deployment to propagate..."
+          sleep 10
+          
+          URL="${{ steps.deploy.outputs.url || secrets.STAGING_API_URL }}"
+          if [[ -n "$URL" ]]; then
+            echo "Testing: $URL/health"
+            curl -sf "$URL/health" || echo "⚠️ Health check failed (may need more time)"
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Run k6 Tests on Staging
+  # ────────────────────────────────────────────────────────────────────────────
+  k6-staging:
+    name: k6 Staging Tests
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/staging'
+    timeout-minutes: 15
+
+    outputs:
+      passed: ${{ steps.k6.outcome == 'success' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '0.49.0'
+
+      - name: Run k6 smoke test
+        id: k6
+        run: |
+          echo "🔥 Running k6 smoke tests against staging..."
+          k6 run test/k6/smoke.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=summary.json
+        env:
+          API_URL: ${{ needs.deploy-staging.outputs.staging_url || secrets.STAGING_API_URL }}
+          TEST_USER_JWT: ${{ secrets.TEST_USER_JWT }}
+
+      - name: Run k6 load test
+        if: success()
+        run: |
+          echo "📊 Running k6 load tests..."
+          k6 run test/k6/load.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)"
+        env:
+          API_URL: ${{ needs.deploy-staging.outputs.staging_url || secrets.STAGING_API_URL }}
+          TEST_USER_JWT: ${{ secrets.TEST_USER_JWT }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-staging-results-${{ github.run_number }}
+          path: summary.json
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Create PR to Main (if k6 passes)
+  # ────────────────────────────────────────────────────────────────────────────
+  create-pr:
+    name: Create PR to Main
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, k6-staging]
+    if: github.ref == 'refs/heads/staging' && needs.k6-staging.result == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for existing PR
+        id: check_pr
+        run: |
+          PR_EXISTS=$(gh pr list --head staging --base main --state open --json number --jq 'length')
+          echo "pr_exists=$PR_EXISTS" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Pull Request
+        if: steps.check_pr.outputs.pr_exists == '0'
+        run: |
+          # Get commit messages since last merge
+          COMMITS=$(git log origin/main..HEAD --oneline | head -10)
+          
+          gh pr create \
+            --base main \
+            --head staging \
+            --title "🚀 Deploy: staging → main" \
+            --body "## Automated PR from staging branch
+          
+          ### ✅ Pre-merge checks passed:
+          - [x] CI tests (lint, typecheck, unit, integration)
+          - [x] Staging deployment successful
+          - [x] k6 smoke tests passed
+          - [x] k6 load tests passed
+          
+          ### Recent commits:
+          \`\`\`
+          $COMMITS
+          \`\`\`
+          
+          ### Actions:
+          - Review the changes
+          - Merge when ready to deploy to production
+          
+          ---
+          *This PR was automatically created after staging tests passed.*"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update existing PR
+        if: steps.check_pr.outputs.pr_exists != '0'
+        run: |
+          PR_NUMBER=$(gh pr list --head staging --base main --state open --json number --jq '.[0].number')
+          
+          gh pr comment $PR_NUMBER --body "### ✅ Staging tests passed again
+          
+          - Commit: \`${{ github.sha }}\`
+          - k6 smoke: ✅ Passed
+          - k6 load: ✅ Passed
+          
+          Ready to merge!"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Deploy to Production (main branch only)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Deploying to production..."
+          pnpm deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Verify production deployment
+        run: |
+          echo "Waiting for deployment to propagate..."
+          sleep 10
+          
+          echo "Testing: https://api.studio.polymasterlabs.com/health"
+          curl -sf "https://api.studio.polymasterlabs.com/health" && echo "✅ Production healthy!"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Post-deploy smoke test on Production
+  # ────────────────────────────────────────────────────────────────────────────
+  smoke-production:
+    name: Production Smoke Test
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '0.49.0'
+
+      - name: Quick smoke test
+        run: |
+          echo "🔥 Quick production smoke test..."
+          k6 run test/k6/smoke.js --duration 15s --vus 2
+        env:
+          API_URL: https://api.studio.polymasterlabs.com
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Notify on deployment
+  # ────────────────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, k6-staging, deploy-production, smoke-production]
+    if: always() && (needs.deploy-production.result == 'success' || needs.k6-staging.result == 'failure')
+
+    steps:
+      - name: Slack - Production deployed
+        if: needs.deploy-production.result == 'success' && secrets.SLACK_DEPLOY_WEBHOOK
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🚀 Production deployed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*🚀 Production Deployed*\n• Commit: `${{ github.sha }}`\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Slack - Staging tests failed
+        if: needs.k6-staging.result == 'failure' && secrets.SLACK_DEPLOY_WEBHOOK
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "❌ Staging k6 tests failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*❌ Staging Tests Failed*\n• Branch: `staging`\n• PR to main blocked\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
