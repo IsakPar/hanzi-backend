@@ -22,7 +22,7 @@ import {
   generateStorageKey,
 } from './metadata';
 import { importD1, getRowCounts, D1Config } from './d1';
-import { downloadFromS3, downloadFromR2, S3Config, R2Config } from './storage';
+import { downloadFromS3, downloadFromR2, listS3Objects, S3Config, R2Config } from './storage';
 
 // ============================================================================
 // MAIN RESTORE FUNCTION
@@ -246,17 +246,39 @@ export async function executeRestore(
 // ============================================================================
 
 async function findLatestBackup(config: BackupConfig): Promise<string> {
-  // List metadata files and find the most recent
-  // TODO: Implement actual listing
+  console.log('[RESTORE] Finding latest backup...');
   
-  console.log('[RESTORE] Listing backups in R2...');
+  const s3Config: S3Config = {
+    bucket: config.s3.bucket,
+    region: config.s3.region,
+    accessKeyId: config.s3.access_key_id,
+    secretAccessKey: config.s3.secret_access_key,
+  };
   
-  // In real implementation:
-  // 1. List objects with prefix env=<env>/metadata/
-  // 2. Sort by key (which includes date)
-  // 3. Return the latest backup_id
+  // List metadata files
+  const prefix = `env=${config.environment}/metadata/`;
+  console.log(`[RESTORE] Listing objects with prefix: ${prefix}`);
   
-  throw new Error('findLatestBackup not yet implemented. Specify a backup_id.');
+  const objects = await listS3Objects(s3Config, prefix);
+  
+  if (objects.length === 0) {
+    throw new Error(`No backups found in ${config.s3.bucket} with prefix ${prefix}`);
+  }
+  
+  // Sort by key (newest first - keys contain dates like 2025/12/01)
+  objects.sort((a, b) => b.key.localeCompare(a.key));
+  
+  // Extract backup_id from the key
+  // Key format: env=production/metadata/2025/12/01/2025-12-01T03-00-00-000Z.json
+  const latestKey = objects[0].key;
+  const filename = latestKey.split('/').pop()!;  // "2025-12-01T03-00-00-000Z.json"
+  const backupId = filename
+    .replace('.json', '')
+    .replace(/-(\d{2})-(\d{2})-(\d{3})Z$/, ':$1:$2.$3Z');  // Convert back to ISO format
+  
+  console.log(`[RESTORE] Found ${objects.length} backups, latest: ${backupId}`);
+  
+  return backupId;
 }
 
 // ============================================================================
