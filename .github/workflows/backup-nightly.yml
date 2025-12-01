@@ -17,9 +17,6 @@ on:
         required: false
         type: string
 
-env:
-  NODE_VERSION: '22'
-
 jobs:
   backup:
     name: Create Backup
@@ -38,19 +35,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Install wrangler
-        run: pnpm add -g wrangler
+      - name: Install wrangler globally
+        run: npm install -g wrangler
+
+      - name: Verify setup
+        run: |
+          echo "Node version: $(node --version)"
+          echo "pnpm version: $(pnpm --version)"
+          echo "wrangler version: $(wrangler --version)"
+          echo "tsx available: $(pnpm exec tsx --version)"
 
       - name: Run backup
         id: backup
-        run: |
-          pnpm exec tsx backup/backup.ts cron
+        run: pnpm exec tsx backup/backup.ts cron
         env:
           ENVIRONMENT: production
           TRIGGERED_BY: github-actions
@@ -96,19 +99,6 @@ jobs:
                 },
                 {
                   "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Environment:*\nproduction"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Trigger:*\ncron"
-                    }
-                  ]
-                },
-                {
-                  "type": "section",
                   "text": {
                     "type": "mrkdwn",
                     "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
@@ -135,19 +125,6 @@ jobs:
                     "type": "plain_text",
                     "text": "✅ Nightly Backup Complete"
                   }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Environment:*\nproduction"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Trigger:*\ncron"
-                    }
-                  ]
                 }
               ]
             }
@@ -155,4 +132,3 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BACKUP_WEBHOOK }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
         continue-on-error: true
-
