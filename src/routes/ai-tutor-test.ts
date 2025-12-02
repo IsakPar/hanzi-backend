@@ -4,12 +4,18 @@
  * Endpoints for testing the AI Tutor pipeline from the Control Center.
  * Admin-only access for debugging and QA.
  * 
+ * Features:
+ * - Real-time streaming logs via SSE
+ * - Running cost counter
+ * - Cancel support via AbortController
+ * 
  * @module routes/ai-tutor-test
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { streamSSE } from 'hono/streaming';
 import { AppBindings, AppVariables } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { AITutorGenerator, TutorLesson } from '../services/ai-tutor-generator';
@@ -397,6 +403,257 @@ app.post('/run', zValidator('json', runTestSchema), async (c) => {
       error: errorMessage,
     });
   }
+});
+
+/**
+ * Run a streaming test generation with real-time progress
+ * GET /v1/ai-tutor-test/run-stream
+ * 
+ * Uses Server-Sent Events (SSE) to stream progress in real-time.
+ * Supports cancellation via connection close.
+ */
+app.get('/run-stream', async (c) => {
+  const hskLevel = parseInt(c.req.query('hskLevel') || '1');
+  const lessonPosition = parseInt(c.req.query('lessonPosition') || '15');
+  const focusWordsParam = c.req.query('focusWords') || '学习,中文';
+  const focusWords = focusWordsParam.split(',').map(w => w.trim()).filter(Boolean);
+  const bypassCache = c.req.query('bypassCache') === 'true';
+  
+  const requestId = `stream_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const startTime = Date.now();
+  let totalCost = 0;
+  let cancelled = false;
+
+  logWithContext('info', 'ai_tutor_test.stream.start', {
+    requestId,
+    meta: { hskLevel, lessonPosition, focusWords, bypassCache }
+  });
+
+  return streamSSE(c, async (stream) => {
+    // Helper to send a step event
+    const sendStep = async (
+      step: string, 
+      status: 'running' | 'success' | 'error' | 'skipped',
+      message: string,
+      details?: Record<string, unknown>,
+      cost?: number
+    ) => {
+      if (cancelled) return;
+      
+      if (cost) totalCost += cost;
+      
+      const event = {
+        type: 'step',
+        step,
+        status,
+        message,
+        durationMs: Date.now() - startTime,
+        totalCost,
+        cost,
+        details,
+      };
+      
+      await stream.writeSSE({
+        data: JSON.stringify(event),
+        event: 'step',
+      });
+    };
+
+    // Helper to send final result
+    const sendResult = async (success: boolean, lesson?: TutorLesson, error?: string) => {
+      const event = {
+        type: 'result',
+        success,
+        lesson,
+        error,
+        summary: {
+          totalDurationMs: Date.now() - startTime,
+          totalCost,
+        },
+      };
+      
+      await stream.writeSSE({
+        data: JSON.stringify(event),
+        event: 'result',
+      });
+    };
+
+    // Handle cancellation
+    stream.onAbort(() => {
+      cancelled = true;
+      logWithContext('info', 'ai_tutor_test.stream.cancelled', { requestId });
+    });
+
+    try {
+      // Step 1: Config check
+      await sendStep('config', 'running', 'Checking configuration...');
+      
+      const openrouterKey = c.env.OPENROUTER_API_KEY;
+      const pythonUrl = c.env.VALIDATOR_URL;
+      
+      if (!openrouterKey) {
+        await sendStep('config', 'error', 'OPENROUTER_API_KEY not configured');
+        await sendResult(false, undefined, 'OPENROUTER_API_KEY not configured');
+        return;
+      }
+      
+      if (!pythonUrl) {
+        await sendStep('config', 'error', 'VALIDATOR_URL not configured');
+        await sendResult(false, undefined, 'VALIDATOR_URL not configured');
+        return;
+      }
+      
+      await sendStep('config', 'success', 'Configuration validated', {
+        pythonUrl,
+        openrouterKeyPrefix: openrouterKey.slice(0, 12) + '...',
+      });
+      
+      if (cancelled) return;
+
+      // Step 2: Check Python validator
+      await sendStep('validator', 'running', 'Checking Python validator...');
+      
+      try {
+        const validatorResponse = await fetch(`${pythonUrl}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(5000),
+        });
+        
+        if (validatorResponse.ok) {
+          await sendStep('validator', 'success', 'Python validator is reachable');
+        } else {
+          await sendStep('validator', 'error', `Python validator returned ${validatorResponse.status}`);
+        }
+      } catch (e) {
+        await sendStep('validator', 'error', `Cannot reach validator: ${(e as Error).message}`);
+      }
+      
+      if (cancelled) return;
+
+      // Step 3: Check vocabulary endpoint
+      await sendStep('vocabulary', 'running', 'Fetching vocabulary ceiling...');
+      
+      let vocabCount = 0;
+      try {
+        const vocabResponse = await fetch(`${pythonUrl}/get-vocabulary?max_lesson=${lessonPosition}`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(10000),
+        });
+        
+        if (vocabResponse.ok) {
+          const vocabData = await vocabResponse.json() as { words: string[]; count: number };
+          vocabCount = vocabData.count || vocabData.words?.length || 0;
+          await sendStep('vocabulary', 'success', `Got ${vocabCount} allowed words`, {
+            sampleWords: vocabData.words?.slice(0, 5),
+          });
+        } else {
+          await sendStep('vocabulary', 'error', `Vocabulary endpoint returned ${vocabResponse.status}`);
+          await sendResult(false, undefined, `Vocabulary endpoint failed: ${vocabResponse.status}`);
+          return;
+        }
+      } catch (e) {
+        await sendStep('vocabulary', 'error', `Vocabulary fetch failed: ${(e as Error).message}`);
+        await sendResult(false, undefined, `Vocabulary fetch failed: ${(e as Error).message}`);
+        return;
+      }
+      
+      if (cancelled) return;
+
+      // Step 4: Cache check
+      if (!bypassCache) {
+        await sendStep('cache', 'running', 'Checking cache...');
+        
+        const cache = new TutorCache(c.env.DB, c.env.CONTENT_BUCKET);
+        const cacheResult = await cache.lookup(hskLevel, lessonPosition, focusWords);
+        
+        if (cacheResult.hit && cacheResult.lesson) {
+          await sendStep('cache', 'success', `Cache HIT (${cacheResult.matchType}) - $0.00 saved!`, {
+            cacheKey: cacheResult.cacheKey,
+            matchType: cacheResult.matchType,
+          });
+          await sendResult(true, cacheResult.lesson);
+          return;
+        } else {
+          await sendStep('cache', 'success', 'Cache MISS - will generate', {
+            cacheKey: cacheResult.cacheKey,
+          });
+        }
+      } else {
+        await sendStep('cache', 'skipped', 'Cache bypassed (test option)');
+      }
+      
+      if (cancelled) return;
+
+      // Step 5: Initialize generator
+      await sendStep('init', 'running', 'Initializing AI services...');
+      
+      let vectorizeService: VectorizeService | undefined;
+      if (c.env.VECTORIZE && c.env.AI) {
+        vectorizeService = new VectorizeService(c.env.VECTORIZE, c.env.AI);
+      }
+      
+      await sendStep('init', 'success', 'Services ready', {
+        hasVectorize: !!vectorizeService,
+      });
+      
+      if (cancelled) return;
+
+      // Step 6: Generate lesson
+      await sendStep('generate', 'running', 'Generating lesson content (this takes 15-30s)...');
+      
+      const generator = new AITutorGenerator(
+        c.env.DB,
+        c.env.CONTENT_BUCKET,
+        openrouterKey,
+        pythonUrl,
+        vectorizeService,
+        c.env.AI
+      );
+
+      const lesson = await generator.generateLesson({
+        focusWords,
+        userLessonPosition: lessonPosition,
+        hskLevel,
+        userId: 'test_lab_user',
+      });
+      
+      if (cancelled) return;
+
+      // Check if fallback was used
+      const metadata = lesson.metadata;
+      totalCost = metadata.totalCost;
+      
+      if (metadata.fallbackUsed) {
+        await sendStep('generate', 'error', 'Generation failed - fallback used', {
+          warnings: metadata.warnings,
+          attempts: metadata.attempts,
+        }, metadata.totalCost);
+        
+        // Send warnings as separate steps
+        for (const warning of metadata.warnings) {
+          await sendStep('warning', 'error', warning);
+        }
+        
+        await sendResult(false, lesson, `Generation failed: ${metadata.warnings.join(', ')}`);
+        return;
+      }
+      
+      await sendStep('generate', 'success', 'Lesson generated!', {
+        lessonId: lesson.id,
+        exerciseCount: lesson.exercises.length,
+        readingSentences: lesson.reading.sentences.length,
+        attempts: metadata.attempts,
+        preFilterScore: metadata.qualityMetrics?.preFilterScore,
+      }, metadata.totalCost);
+
+      await sendResult(true, lesson);
+      
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      await sendStep('error', 'error', `Fatal error: ${errorMsg}`);
+      await sendResult(false, undefined, errorMsg);
+    }
+  });
 });
 
 /**
