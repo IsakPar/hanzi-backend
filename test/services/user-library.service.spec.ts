@@ -27,9 +27,9 @@ describe.sequential('UserLibraryService', () => {
   async function createTestContent(id?: string): Promise<string> {
     const contentId = id || nanoid();
     await ctx.db.prepare(`
-      INSERT INTO content_library (id, title, content_type, hsk_level, is_published, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 1, strftime('%s', 'now'), strftime('%s', 'now'))
-    `).bind(contentId, 'Test Content', 'audiobook', 1).run();
+      INSERT INTO content_library (id, title, content_type, hsk_level, r2_key, is_published, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, strftime('%s', 'now'), strftime('%s', 'now'))
+    `).bind(contentId, 'Test Content', 'audiobook', 1, `test/content/${contentId}.mp3`).run();
     return contentId;
   }
 

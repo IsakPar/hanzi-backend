@@ -151,15 +151,17 @@ describe.sequential('P0: Cron Jobs', () => {
       // Create a stuck upload (pending_upload status, older than 1 hour)
       const twoHoursAgo = new Date();
       twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+      const stuckId = nanoid();
       
       await ctx.db.prepare(`
-        INSERT INTO content_library (id, title, content_type, hsk_level, upload_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO content_library (id, title, content_type, hsk_level, r2_key, upload_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        nanoid(),
+        stuckId,
         'Stuck Upload',
         'audiobook',
         1,
+        `test/stuck/${stuckId}.mp3`,
         'pending_upload',
         Math.floor(twoHoursAgo.getTime() / 1000),
         Math.floor(twoHoursAgo.getTime() / 1000)
@@ -179,13 +181,14 @@ describe.sequential('P0: Cron Jobs', () => {
       
       const recentId = nanoid();
       await ctx.db.prepare(`
-        INSERT INTO content_library (id, title, content_type, hsk_level, upload_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO content_library (id, title, content_type, hsk_level, r2_key, upload_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         recentId,
         'Recent Upload',
         'audiobook',
         1,
+        `test/recent/${recentId}.mp3`,
         'pending_upload',
         Math.floor(thirtyMinutesAgo.getTime() / 1000),
         Math.floor(thirtyMinutesAgo.getTime() / 1000)

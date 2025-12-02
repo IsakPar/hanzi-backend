@@ -37,9 +37,10 @@ describe.sequential('P0: Lesson Cache', () => {
 
   describe('GET /v1/lesson-cache/:lessonNumber', () => {
     it('returns cached lesson for valid lesson number', async () => {
+      // Lesson cache routes are admin-only
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/1', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -50,9 +51,10 @@ describe.sequential('P0: Lesson Cache', () => {
     });
 
     it('returns 404 for lesson beyond cache range', async () => {
+      // Lesson cache routes are admin-only
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/999', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext
@@ -281,9 +283,10 @@ describe.sequential('P0: Lesson Cache', () => {
 
   describe('Practice Blocks', () => {
     it('GET /v1/lesson-cache/:lessonNumber/practice returns practice blocks', async () => {
+      // Lesson cache routes are admin-only
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/lesson-cache/1/practice', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken),
         }),
         ctx.env,
         executionContext

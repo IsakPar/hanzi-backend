@@ -1,10 +1,11 @@
 /**
  * AI Tutor Lesson Generator Service
  * 
- * Generates reading content + practice exercises with triple validation:
+ * Generates reading content + practice exercises with QUADRUPLE validation:
  * 1. Python i+1 validation (vocabulary ceiling)
- * 2. Python structural validation (JSON schema)
- * 3. AI grammar validation (native speaker quality)
+ * 2. Mathematical pre-filter (fast, cheap sanity checks)
+ * 3. Python structural validation (JSON schema)
+ * 4. AI grammar validation (native speaker quality)
  * 
  * @module services/ai-tutor-generator
  */
@@ -14,6 +15,8 @@ import { createOpenRouterClient, OPENROUTER_MODELS, estimateOpenRouterCost } fro
 import { VectorizeService } from './vectorize';
 import { AIUsageLogger } from './ai-usage-logger';
 import { logWithContext } from '../utils/logger';
+import { preFilterAll } from './tutor-pre-filter';
+import { TutorCache } from './tutor-cache';
 
 // ═══════════════════════════════════════════════════════════
 // Configuration
@@ -133,6 +136,14 @@ export interface GenerationMetadata {
   fallbackUsed: boolean;
   warnings: string[];
   durationMs: number;
+  // Quality metrics
+  qualityMetrics?: {
+    preFilterScore: number;
+    preFilterPassed: boolean;
+    grammarPassRate: number;
+    readingValidOnAttempt: number;
+    practiceValidOnAttempt: number;
+  };
 }
 
 export interface TutorLesson {
@@ -191,6 +202,7 @@ export class AITutorGenerator {
   private pythonValidatorUrl: string;
   private vectorizeService?: VectorizeService;
   private usageLogger: AIUsageLogger;
+  private cache: TutorCache;
   private requestId: string;
 
   constructor(
@@ -205,6 +217,7 @@ export class AITutorGenerator {
     this.pythonValidatorUrl = pythonValidatorUrl;
     this.vectorizeService = vectorizeService;
     this.usageLogger = new AIUsageLogger(db);
+    this.cache = new TutorCache(db);
     this.requestId = `tutor_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
@@ -230,6 +243,29 @@ export class AITutorGenerator {
     });
 
     try {
+      // Step 0: Check cache first (exact or fuzzy match)
+      const cacheResult = await this.cache.lookup(
+        input.hskLevel,
+        input.userLessonPosition,
+        input.focusWords
+      );
+      
+      if (cacheResult.hit && cacheResult.lesson) {
+        logWithContext('info', 'tutor.generate.cache_hit', {
+          requestId: this.requestId,
+          meta: { 
+            cacheKey: cacheResult.cacheKey,
+            matchType: cacheResult.matchType,
+            savedCost: cacheResult.savedCost,
+          }
+        });
+        
+        // Return cached lesson with updated metadata
+        const cachedLesson = cacheResult.lesson;
+        cachedLesson.metadata.warnings.push(`Served from cache (${cacheResult.matchType} match)`);
+        return cachedLesson;
+      }
+      
       // Step 1: Get allowed words from Python validator
       const allowedWords = await this.fetchAllowedWords(input.userLessonPosition);
       
@@ -317,16 +353,49 @@ export class AITutorGenerator {
         return this.createFallbackLesson(input, metadata, startTime);
       }
       
-      // Step 5: Grammar validation
+      // Step 5: Mathematical pre-filter (fast, cheap validation before AI grammar check)
+      const preFilterResult = preFilterAll(reading, exercises, input.focusWords, allowedWords);
+      
+      logWithContext('info', 'tutor.prefilter.result', {
+        requestId: this.requestId,
+        meta: { 
+          passed: preFilterResult.passed,
+          score: preFilterResult.combinedScore,
+          readingScore: preFilterResult.readingResult.score,
+          exercisesScore: preFilterResult.exercisesResult.score,
+        }
+      });
+      
+      if (!preFilterResult.passed) {
+        metadata.fallbackUsed = true;
+        metadata.warnings.push(`Pre-filter failed: ${preFilterResult.summary}`);
+        metadata.qualityMetrics = {
+          preFilterScore: preFilterResult.combinedScore,
+          preFilterPassed: false,
+          grammarPassRate: 0,
+          readingValidOnAttempt: metadata.attempts.reading,
+          practiceValidOnAttempt: metadata.attempts.practice,
+        };
+        return this.createFallbackLesson(input, metadata, startTime);
+      }
+      
+      // Step 6: Grammar validation (AI quality check)
       metadata.attempts.grammarCheck++;
       const grammarResult = await this.validateGrammar(reading, exercises);
       
+      const grammarPassRate = grammarResult.items.filter(i => i.ok).length / grammarResult.items.length;
+      
       if (!grammarResult.overall_ok) {
-        const passRate = grammarResult.items.filter(i => i.ok).length / grammarResult.items.length;
-        
-        if (passRate < CONFIG.GRAMMAR_PASS_THRESHOLD) {
+        if (grammarPassRate < CONFIG.GRAMMAR_PASS_THRESHOLD) {
           metadata.fallbackUsed = true;
-          metadata.warnings.push(`Grammar pass rate ${(passRate * 100).toFixed(0)}% below threshold`);
+          metadata.warnings.push(`Grammar pass rate ${(grammarPassRate * 100).toFixed(0)}% below threshold`);
+          metadata.qualityMetrics = {
+            preFilterScore: preFilterResult.combinedScore,
+            preFilterPassed: true,
+            grammarPassRate,
+            readingValidOnAttempt: metadata.attempts.reading,
+            practiceValidOnAttempt: metadata.attempts.practice,
+          };
           return this.createFallbackLesson(input, metadata, startTime);
         }
         
@@ -337,6 +406,15 @@ export class AITutorGenerator {
         exercises = exercises.filter(ex => !failedIds.some(id => id.startsWith(ex.id)));
         metadata.warnings.push(`Removed ${failedIds.length} items due to grammar issues`);
       }
+      
+      // Record quality metrics
+      metadata.qualityMetrics = {
+        preFilterScore: preFilterResult.combinedScore,
+        preFilterPassed: true,
+        grammarPassRate,
+        readingValidOnAttempt: metadata.attempts.reading,
+        practiceValidOnAttempt: metadata.attempts.practice,
+      };
       
       metadata.durationMs = Date.now() - startTime;
       
@@ -349,7 +427,7 @@ export class AITutorGenerator {
         }
       });
       
-      return {
+      const lesson: TutorLesson = {
         id: `tutor_lesson_${this.requestId}`,
         version: 1,
         input,
@@ -357,6 +435,15 @@ export class AITutorGenerator {
         exercises,
         metadata,
       };
+      
+      // Store in cache for future requests (don't await - fire and forget)
+      this.cache.store(input.hskLevel, input.userLessonPosition, input.focusWords, lesson)
+        .catch(err => logWithContext('warn', 'tutor.cache.store_failed', { 
+          requestId: this.requestId, 
+          meta: { error: (err as Error).message } 
+        }));
+      
+      return lesson;
       
     } catch (error) {
       logWithContext('error', 'tutor.generate.error', {

@@ -30,7 +30,8 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
 
   describe('Text-to-Speech', () => {
     it('POST /speech/tts generates audio', async () => {
-      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
+      // Speech routes are admin-only (cost control)
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
@@ -56,11 +57,12 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
         executionContext
       );
 
-      expect([401, 404]).toContain(res.status);
+      expect([401, 403, 404]).toContain(res.status);
     });
 
     it('validates text is required', async () => {
-      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
+      // Speech routes are admin-only (cost control)
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
@@ -76,7 +78,8 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('supports voice selection', async () => {
-      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
+      // Speech routes are admin-only (cost control)
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
@@ -92,7 +95,8 @@ describe.sequential('Speech & Validator - Medium Priority', () => {
     });
 
     it('supports speed adjustment', async () => {
-      const { accessToken: sessionToken } = await createAuthenticatedUser(ctx.db);
+      // Speech routes are admin-only (cost control)
+      const { accessToken: sessionToken } = await createAuthenticatedAdmin(ctx.db);
       
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/tts', {
