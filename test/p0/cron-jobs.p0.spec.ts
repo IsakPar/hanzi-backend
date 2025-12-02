@@ -209,15 +209,17 @@ describe.sequential('P0: Cron Jobs', () => {
     it('cleans up failed uploads', async () => {
       const twoHoursAgo = new Date();
       twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+      const failedId = nanoid();
       
       await ctx.db.prepare(`
-        INSERT INTO content_library (id, title, content_type, hsk_level, upload_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO content_library (id, title, content_type, hsk_level, r2_key, upload_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        nanoid(),
+        failedId,
         'Failed Upload',
         'audiobook',
         1,
+        `test/failed/${failedId}.mp3`,
         'failed',
         Math.floor(twoHoursAgo.getTime() / 1000),
         Math.floor(twoHoursAgo.getTime() / 1000)

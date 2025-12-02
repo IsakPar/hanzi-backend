@@ -156,21 +156,21 @@ describe.sequential('StoriesService', () => {
       expect(sentences.results.map((s: any) => s.chinese)).toEqual(['第一句', '第二句', '第三句']);
     });
 
-    it('supports audio URLs on sentences', async () => {
+    it('supports audio R2 keys on sentences', async () => {
       const storyId = await createTestStory();
-      const audioUrl = 'https://content.example.com/audio/sentence1.mp3';
+      const audioR2Key = 'stories/audio/sentence1.mp3';
 
       await ctx.db.prepare(`
-        INSERT INTO story_sentences (id, story_id, chinese, pinyin, english, order_index, audio_url, created_at)
+        INSERT INTO story_sentences (id, story_id, chinese, pinyin, english, order_index, audio_r2_key, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(nanoid(), storyId, '你好', 'nǐ hǎo', 'Hello', 0, audioUrl).run();
+      `).bind(nanoid(), storyId, '你好', 'nǐ hǎo', 'Hello', 0, audioR2Key).run();
 
       const sentence = await ctx.db
-        .prepare('SELECT audio_url FROM story_sentences WHERE story_id = ?')
+        .prepare('SELECT audio_r2_key FROM story_sentences WHERE story_id = ?')
         .bind(storyId)
         .first();
 
-      expect(sentence?.audio_url).toBe(audioUrl);
+      expect(sentence?.audio_r2_key).toBe(audioR2Key);
     });
   });
 
