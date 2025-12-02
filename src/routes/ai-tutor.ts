@@ -78,6 +78,7 @@ aiTutorRouter.post('/generate', async (c) => {
     
     const generator = new AITutorGenerator(
       c.env.DB,
+      c.env.CONTENT_BUCKET,
       openrouterKey,
       pythonUrl,
       vectorizeService,

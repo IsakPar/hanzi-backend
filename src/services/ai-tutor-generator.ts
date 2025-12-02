@@ -10,7 +10,7 @@
  * @module services/ai-tutor-generator
  */
 
-import { D1Database } from '@cloudflare/workers-types';
+import { D1Database, R2Bucket } from '@cloudflare/workers-types';
 import { createOpenRouterClient, OPENROUTER_MODELS, estimateOpenRouterCost } from './openrouter-client';
 import { VectorizeService } from './vectorize';
 import { AIUsageLogger } from './ai-usage-logger';
@@ -198,6 +198,7 @@ interface GrammarValidationResult {
 
 export class AITutorGenerator {
   private db: D1Database;
+  private r2: R2Bucket;
   private openrouterApiKey: string;
   private pythonValidatorUrl: string;
   private vectorizeService?: VectorizeService;
@@ -207,17 +208,19 @@ export class AITutorGenerator {
 
   constructor(
     db: D1Database,
+    r2: R2Bucket,
     openrouterApiKey: string,
     pythonValidatorUrl: string,
     vectorizeService?: VectorizeService,
     aiBinding?: unknown
   ) {
     this.db = db;
+    this.r2 = r2;
     this.openrouterApiKey = openrouterApiKey;
     this.pythonValidatorUrl = pythonValidatorUrl;
     this.vectorizeService = vectorizeService;
     this.usageLogger = new AIUsageLogger(db);
-    this.cache = new TutorCache(db);
+    this.cache = new TutorCache(db, r2);
     this.requestId = `tutor_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
