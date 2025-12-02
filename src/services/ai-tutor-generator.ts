@@ -507,7 +507,7 @@ Generate the reading now.`;
         requestType: 'tutor_reading',
         userId: input.userId,
         metadata: {
-          lessonNumber: input.lessonNumber,
+          userLessonPosition: input.userLessonPosition,
           hskLevel: input.hskLevel,
           focusWords: input.focusWords,
         },

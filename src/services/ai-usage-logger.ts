@@ -411,11 +411,15 @@ export class AIUsageLogger {
     totalCost: number;
     avgCostPerLesson: number;
     totalTokens: number;
+    avgLatencyMs: number;
+    totalLatencyMs: number;
+    fallbackRate: number;
     daily: Array<{
       date: string;
       lessons: number;
       cost: number;
       tokens: number;
+      avgLatencyMs: number;
     }>;
     recentLessons: Array<{
       sessionId: string;
@@ -424,6 +428,7 @@ export class AIUsageLogger {
       outputTokens: number;
       cost: number;
       steps: number;
+      latencyMs: number;
       metadata?: Record<string, unknown>;
     }>;
   }> {
@@ -443,6 +448,7 @@ export class AIUsageLogger {
         COUNT(DISTINCT session_id) as total_lessons,
         SUM(cost_usd) as total_cost,
         SUM(total_tokens) as total_tokens,
+        SUM(latency_ms) as total_latency,
         COUNT(*) as total_steps
       ${baseQuery}
     `;
@@ -451,6 +457,7 @@ export class AIUsageLogger {
     const totalLessons = (totalsResult?.total_lessons as number) || 0;
     const totalCost = (totalsResult?.total_cost as number) || 0;
     const totalTokens = (totalsResult?.total_tokens as number) || 0;
+    const totalLatencyMs = (totalsResult?.total_latency as number) || 0;
 
     // Get daily breakdown (count unique sessions per day as lessons)
     const dailyQuery = `
@@ -458,7 +465,8 @@ export class AIUsageLogger {
         date(created_at, 'unixepoch') as date,
         COUNT(DISTINCT session_id) as lessons,
         SUM(cost_usd) as cost,
-        SUM(total_tokens) as tokens
+        SUM(total_tokens) as tokens,
+        AVG(latency_ms) as avg_latency
       ${baseQuery}
       GROUP BY date(created_at, 'unixepoch')
       ORDER BY date DESC
@@ -471,6 +479,7 @@ export class AIUsageLogger {
       lessons: (row.lessons as number) || 0,
       cost: (row.cost as number) || 0,
       tokens: (row.tokens as number) || 0,
+      avgLatencyMs: Math.round((row.avg_latency as number) || 0),
     }));
 
     // Get recent individual lessons (grouped by session)
@@ -482,6 +491,7 @@ export class AIUsageLogger {
         SUM(output_tokens) as output_tokens,
         SUM(cost_usd) as cost,
         COUNT(*) as steps,
+        SUM(latency_ms) as latency_ms,
         GROUP_CONCAT(metadata) as all_metadata
       ${baseQuery}
       GROUP BY session_id
@@ -510,6 +520,7 @@ export class AIUsageLogger {
         outputTokens: (row.output_tokens as number) || 0,
         cost: (row.cost as number) || 0,
         steps: (row.steps as number) || 0,
+        latencyMs: (row.latency_ms as number) || 0,
         metadata,
       };
     });
@@ -519,6 +530,9 @@ export class AIUsageLogger {
       totalCost,
       avgCostPerLesson: totalLessons > 0 ? totalCost / totalLessons : 0,
       totalTokens,
+      avgLatencyMs: totalLessons > 0 ? Math.round(totalLatencyMs / totalLessons) : 0,
+      totalLatencyMs,
+      fallbackRate: 0, // TODO: Track fallback usage
       daily,
       recentLessons,
     };
