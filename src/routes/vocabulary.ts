@@ -58,7 +58,7 @@ const searchSchema = z.object({
   query: z.string().optional(),
   hsk_level: z.coerce.number().int().min(1).max(9).optional(),
   category: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  limit: z.coerce.number().int().min(1).max(1000).optional().default(50),  // Increased for bulk operations
   offset: z.coerce.number().int().min(0).optional().default(0),
   sort: z.enum(['hanzi', 'pinyin', 'hsk_level', 'category']).optional().default('hanzi'),
   order: z.enum(['asc', 'desc']).optional().default('asc'),
