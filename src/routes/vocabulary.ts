@@ -9,6 +9,7 @@ import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { apiRateLimit } from '../middleware/rate-limit';
 import { generateExampleSentence as generateExampleSentenceAI } from '../services/vocab-enhancer';
+import { AIUsageLogger } from '../services/ai-usage-logger';
 
 // ═══════════════════════════════════════════════════════════
 // ELEVENLABS CONFIGURATION
@@ -598,6 +599,14 @@ app.post('/admin/:id/preview-word-audio', zValidator('json', previewAudioSchema)
     const audioBuffer = await response.arrayBuffer();
     const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
 
+    // Log ElevenLabs usage for cost tracking
+    const aiLogger = new AIUsageLogger(c.env.DB);
+    await aiLogger.logElevenLabs({
+      characters: text.length,
+      success: true,
+      voiceId: voiceConfig.id,
+    });
+
     return c.json({
       success: true,
       audioBase64,
@@ -673,6 +682,14 @@ app.post('/admin/:id/preview-example-audio', zValidator('json', previewAudioSche
     // Convert to base64
     const audioBuffer = await response.arrayBuffer();
     const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
+
+    // Log ElevenLabs usage for cost tracking
+    const aiLogger = new AIUsageLogger(c.env.DB);
+    await aiLogger.logElevenLabs({
+      characters: text.length,
+      success: true,
+      voiceId: voiceConfig.id,
+    });
 
     return c.json({
       success: true,
@@ -839,7 +856,8 @@ app.post('/admin/:id/generate-example', zValidator('json', generateExampleSchema
       entry.english,
       entry.hskLevel,
       apiKey,
-      requestId
+      requestId,
+      c.env.DB  // Pass DB for cost tracking
     );
 
     // Save the generated example to the vocabulary entry

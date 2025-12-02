@@ -18,14 +18,21 @@ import { drizzle } from 'drizzle-orm/d1';
 import { eq, ne, and, lte, sql, notInArray } from 'drizzle-orm';
 import { vocabulary } from '../schema';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
+import { bulkTaggingRateLimit } from '../middleware/rate-limit';
 import { VectorizeService } from '../services/vectorize';
+import { AIUsageLogger } from '../services/ai-usage-logger';
+import { OPENROUTER_PRICING } from '../services/openrouter-client';
 import { logWithContext } from '../utils/logger';
 import type { AppEnv } from '../types/app';
 
 const app = new Hono<AppEnv>();
 
-// Protect all routes
+// Protect all routes with auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
+
+// Apply higher rate limit for tagging endpoints
+app.use('/tag', bulkTaggingRateLimit);
+app.use('/tag-bulk', bulkTaggingRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -465,6 +472,27 @@ Reply with ONLY one of: ${validValues.join(', ')}`;
 
     const result = await response.json() as any;
     const aiValue = result.choices?.[0]?.message?.content?.trim()?.toLowerCase();
+    const inputTokens = result.usage?.prompt_tokens || 0;
+    const outputTokens = result.usage?.completion_tokens || 0;
+
+    // Log AI usage for cost tracking
+    const aiLogger = new AIUsageLogger(c.env.DB);
+    const pricing = OPENROUTER_PRICING['deepseek/deepseek-chat'];
+    const cost = pricing 
+      ? (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output
+      : 0;
+    
+    await aiLogger.log({
+      sessionId: requestId,
+      model: 'deepseek/deepseek-chat',
+      endpoint: 'distractors-tag',
+      inputTokens,
+      outputTokens,
+      cost,
+      success: !!aiValue && validValues.includes(aiValue),
+      requestType: `tag_${field}`,
+      metadata: { wordId, hanzi: word.hanzi },
+    });
 
     if (!aiValue || !validValues.includes(aiValue)) {
       logWithContext('warn', 'distractors.tag_invalid_response', {

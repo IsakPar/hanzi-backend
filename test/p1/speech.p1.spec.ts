@@ -40,7 +40,7 @@ describe.sequential('P1: Speech Routes', () => {
     it('returns available voices', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/voices', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken), // Admin-only endpoint
         }),
         ctx.env,
         executionContext
@@ -95,7 +95,7 @@ describe.sequential('P1: Speech Routes', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/generate', {
           method: 'POST',
-          headers: jsonAuthBearerHeaders(userToken),
+          headers: jsonAuthBearerHeaders(adminToken), // Admin-only endpoint
           body: JSON.stringify({
             text: '你好世界',
             voice: 'chinese-female-1',
@@ -114,7 +114,7 @@ describe.sequential('P1: Speech Routes', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/generate', {
           method: 'POST',
-          headers: jsonAuthBearerHeaders(userToken),
+          headers: jsonAuthBearerHeaders(adminToken), // Admin-only endpoint
           body: JSON.stringify({
             voice: 'chinese-female-1',
           }),
@@ -132,7 +132,7 @@ describe.sequential('P1: Speech Routes', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/generate', {
           method: 'POST',
-          headers: jsonAuthBearerHeaders(userToken),
+          headers: jsonAuthBearerHeaders(adminToken), // Admin-only endpoint
           body: JSON.stringify({
             text: longText,
           }),
@@ -148,7 +148,7 @@ describe.sequential('P1: Speech Routes', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/generate', {
           method: 'POST',
-          headers: jsonAuthBearerHeaders(userToken),
+          headers: jsonAuthBearerHeaders(adminToken), // Admin-only endpoint
           body: JSON.stringify({
             text: '你好',
             speed: 5.0, // Invalid - max is 2.0
@@ -414,7 +414,7 @@ describe.sequential('P1: Speech Routes', () => {
   // ========================================
 
   describe('Access Control', () => {
-    it('allows regular users to generate speech', async () => {
+    it('denies regular users access to speech generation (admin-only)', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/speech/generate', {
           method: 'POST',
@@ -425,7 +425,22 @@ describe.sequential('P1: Speech Routes', () => {
         executionContext
       );
 
-      // Should not be 403 (user is allowed)
+      // Speech routes are admin-only (cost control)
+      expect(res.status).toBe(403);
+    });
+
+    it('allows admin to generate speech', async () => {
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/speech/generate', {
+          method: 'POST',
+          headers: jsonAuthBearerHeaders(adminToken),
+          body: JSON.stringify({ text: '管理员测试' }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      // Admin should have access (may fail for other reasons if ElevenLabs not configured)
       expect(res.status).not.toBe(403);
     });
   });

@@ -3,8 +3,10 @@
  * AI-powered example sentence generation for vocabulary entries
  */
 
-import { createOpenRouterClient, OPENROUTER_MODELS, getProviders } from './openrouter-client';
+import { createOpenRouterClient, OPENROUTER_MODELS, getProviders, estimateOpenRouterCost } from './openrouter-client';
+import { AIUsageLogger } from './ai-usage-logger';
 import { logWithContext } from '../utils/logger';
+import type { D1Database } from '@cloudflare/workers-types';
 
 export interface ExampleSentence {
   chinese: string;
@@ -25,9 +27,11 @@ export async function generateExampleSentence(
   english: string,
   hskLevel: number,
   openrouterApiKey: string,
-  requestId: string
+  requestId: string,
+  db?: D1Database
 ): Promise<GenerateExampleResult> {
   const client = createOpenRouterClient(openrouterApiKey);
+  const usageLogger = db ? new AIUsageLogger(db) : null;
 
   const prompt = `Create an example sentence for: ${hanzi} (${english})
 
@@ -107,9 +111,28 @@ Output ONLY this JSON, nothing else:
       throw new Error('Invalid response: missing required fields');
     }
 
+    // Log AI usage for cost tracking
+    const inputTokens = completion.usage?.prompt_tokens || 0;
+    const outputTokens = completion.usage?.completion_tokens || 0;
+    const cost = estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, inputTokens, outputTokens);
+    
+    if (usageLogger) {
+      await usageLogger.log({
+        sessionId: requestId,
+        model: OPENROUTER_MODELS.QWEN_CODER_32B,
+        endpoint: 'vocab-enhancer',
+        inputTokens,
+        outputTokens,
+        cost,
+        success: true,
+        requestType: 'example_sentence',
+        metadata: { hanzi, hskLevel },
+      });
+    }
+
     logWithContext('info', 'vocab.generate_example.success', {
       requestId,
-      meta: { hanzi, tokensUsed },
+      meta: { hanzi, tokensUsed, cost },
     });
 
     return { sentence, tokensUsed };

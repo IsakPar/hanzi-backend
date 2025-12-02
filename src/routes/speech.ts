@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { AnalyticsService } from '../services/analytics';
+import { AIUsageLogger } from '../services/ai-usage-logger';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { aiRateLimit } from '../middleware/rate-limit';
@@ -301,6 +302,15 @@ app.post('/generate', zValidator('json', generateSpeechSchema), async (c) => {
     },
   });
 
+  // Log ElevenLabs usage for AI Control Center
+  const aiLogger = new AIUsageLogger(c.env.DB);
+  await aiLogger.logElevenLabs({
+    userId: user?.id,
+    characters: characterCount,
+    success: true,
+    voiceId,
+  });
+
   return c.json({
     audioBase64,
     durationMs,
@@ -365,6 +375,16 @@ app.post('/generate-batch', zValidator('json', generateBatchSchema), async (c) =
       totalCharacters,
     },
   });
+
+  // Log ElevenLabs usage for AI Control Center (only successful chars)
+  if (totalCharacters > 0) {
+    const aiLogger = new AIUsageLogger(c.env.DB);
+    await aiLogger.logElevenLabs({
+      characters: totalCharacters,
+      success: true,
+      voiceId,
+    });
+  }
 
   return c.json({
     results,
@@ -505,6 +525,15 @@ app.post('/generate-for-lesson', zValidator('json', generateLessonAudioSchema), 
     },
   });
 
+  // Log ElevenLabs usage for AI Control Center
+  const aiLogger = new AIUsageLogger(c.env.DB);
+  await aiLogger.logElevenLabs({
+    userId: user?.id,
+    characters: characterCount,
+    success: true,
+    voiceId,
+  });
+
   return c.json({
     success: true,
     audioUrl,
@@ -576,6 +605,15 @@ app.post('/preview-for-lesson', zValidator('json', previewLessonAudioSchema), as
       durationMs,
       estimatedCost: estimateCost(characterCount),
     },
+  });
+
+  // Log ElevenLabs usage for AI Control Center
+  const aiLogger = new AIUsageLogger(c.env.DB);
+  await aiLogger.logElevenLabs({
+    userId: user?.id,
+    characters: characterCount,
+    success: true,
+    voiceId,
   });
 
   return c.json({

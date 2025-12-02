@@ -166,3 +166,13 @@ export const webhookRateLimit = rateLimit({
   keyPrefix: 'webhook',
 });
 
+/**
+ * Bulk AI tagging - higher limit for batch operations
+ * 100 requests per minute - allows batch tagging ~100 words
+ */
+export const bulkTaggingRateLimit = rateLimit({
+  max: 100,
+  windowSeconds: 60,
+  keyPrefix: 'bulk-tag',
+});
+

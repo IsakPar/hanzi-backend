@@ -130,7 +130,7 @@ describe.sequential('P1: Vectorize Search', () => {
     it('returns story recommendations', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/recommended', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken), // Admin-only endpoint
         }),
         ctx.env,
         executionContext
@@ -147,7 +147,7 @@ describe.sequential('P1: Vectorize Search', () => {
     it('filters by HSK level', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/stories/recommended?hsk_level=1', {
-          headers: authBearerHeaders(userToken),
+          headers: authBearerHeaders(adminToken), // Admin-only endpoint
         }),
         ctx.env,
         executionContext

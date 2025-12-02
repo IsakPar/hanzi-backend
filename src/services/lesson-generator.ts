@@ -21,6 +21,7 @@ import {
 } from './openrouter-client';
 import { LessonCacheService } from './lesson-cache';
 import { MIN_LESSON_FOR_AI } from '../types/lesson-cache';
+import { AIUsageLogger } from './ai-usage-logger';
 import type OpenAI from 'openai';
 
 // ═══════════════════════════════════════════════════════════
@@ -108,6 +109,7 @@ export class LessonGenerator {
   private bucket: R2Bucket;
   private promptService: PromptTemplateService;
   private cacheService: LessonCacheService;
+  private usageLogger: AIUsageLogger;
 
   constructor(config: GeneratorConfig) {
     this.openrouter = createOpenRouterClient(config.openrouterApiKey);
@@ -117,6 +119,7 @@ export class LessonGenerator {
     this.bucket = config.bucket;
     this.promptService = new PromptTemplateService(config.db);
     this.cacheService = new LessonCacheService(config.bucket, config.requestId);
+    this.usageLogger = new AIUsageLogger(config.db);
   }
 
   async generate(input: GenerateLessonInput): Promise<GenerationResult> {
@@ -238,7 +241,25 @@ export class LessonGenerator {
           feedbackWords,
           allowedVocab
         );
-        totalCost += estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, inputTokens, outputTokens);
+        const genCost = estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, inputTokens, outputTokens);
+        totalCost += genCost;
+
+        // Log generation to AI usage tracker
+        await this.usageLogger.log({
+          sessionId: this.requestId,
+          model: OPENROUTER_MODELS.QWEN_CODER_32B,
+          endpoint: 'lesson-generator',
+          inputTokens,
+          outputTokens,
+          cost: genCost,
+          success: true,
+          requestType: 'lesson_generation',
+          metadata: {
+            lessonNumber: input.lessonNumber,
+            hskLevel: input.hskLevel,
+            attempt: attempts,
+          },
+        });
 
         logWithContext('info', 'lesson_generator.qwen_coder_response', {
           requestId: this.requestId,
@@ -266,10 +287,28 @@ export class LessonGenerator {
         });
 
         if (validation.valid) {
-        // Step 3: Polish with Qwen Coder (validation prompt)
-        const { lesson: polished, inputTokens: polishIn, outputTokens: polishOut } = 
-          await this.callValidation(generatedText, input);
-        totalCost += estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, polishIn, polishOut);
+          // Step 3: Polish with Qwen Coder (validation prompt)
+          const { lesson: polished, inputTokens: polishIn, outputTokens: polishOut } = 
+            await this.callValidation(generatedText, input);
+          const polishCost = estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, polishIn, polishOut);
+          totalCost += polishCost;
+
+          // Log polish step to AI usage tracker
+          await this.usageLogger.log({
+            sessionId: this.requestId,
+            model: OPENROUTER_MODELS.QWEN_CODER_32B,
+            endpoint: 'lesson-generator',
+            inputTokens: polishIn,
+            outputTokens: polishOut,
+            cost: polishCost,
+            success: true,
+            requestType: 'lesson_polish',
+            metadata: {
+              lessonNumber: input.lessonNumber,
+              hskLevel: input.hskLevel,
+              attempt: attempts,
+            },
+          });
 
           logWithContext('info', 'lesson_generator.success', {
             requestId: this.requestId,

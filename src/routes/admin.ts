@@ -1400,24 +1400,35 @@ app.post('/vectorize/test-search', async (c) => {
 // AI USAGE ANALYTICS
 // ═══════════════════════════════════════════════════════════
 
+import { PROVIDERS } from '../services/ai-usage-logger';
+
 /**
  * GET /ai-usage/summary - Get AI usage summary
+ * Query params:
+ *   - days: number (0 = all time, default = 30)
  */
 app.get('/ai-usage/summary', async (c) => {
   const logger = new AIUsageLogger(c.env.DB);
-  const days = parseInt(c.req.query('days') || '30');
+  const daysParam = c.req.query('days');
+  const days = daysParam === '0' || daysParam === 'all' ? 0 : parseInt(daysParam || '30');
   
   try {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    let startDate: Date | undefined;
+    if (days > 0) {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+    }
     
-    const summary = await logger.getSummary({ startDate });
+    const summary = await logger.getSummary(startDate ? { startDate } : {});
     const daily = await logger.getDailyUsage(days);
+    const dailyByProvider = await logger.getDailyUsageByProvider(days);
     
     return c.json({
-      period: `Last ${days} days`,
+      period: days === 0 ? 'All time' : `Last ${days} days`,
       summary,
       daily,
+      dailyByProvider,
+      providers: PROVIDERS,
     });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 500);
