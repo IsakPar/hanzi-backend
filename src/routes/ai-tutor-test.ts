@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { streamSSE } from 'hono/streaming';
 import { AppBindings, AppVariables } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
+import { verifyAccessToken, InvalidTokenError, TokenExpiredError } from '../lib/jwt';
 import { AITutorGenerator, TutorLesson } from '../services/ai-tutor-generator';
 import { TutorCache } from '../services/tutor-cache';
 import { VectorizeService } from '../services/vectorize';
@@ -87,8 +88,15 @@ const batchTestSchema = z.object({
 // Routes
 // ═══════════════════════════════════════════════════════════
 
-// All routes require admin auth
-app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
+// Apply JWT auth to all routes EXCEPT /run-stream (SSE can't send headers)
+app.use('/*', async (c, next) => {
+  // Skip JWT middleware for SSE endpoint - it handles auth via query param
+  if (c.req.path.endsWith('/run-stream')) {
+    return next();
+  }
+  // For all other routes, use JWT auth
+  return jwtAuthMiddleware({ allowRoles: ['admin'] })(c, next);
+});
 
 /**
  * Run a single test generation
@@ -422,10 +430,28 @@ app.get('/run-stream', async (c) => {
     return c.json({ error: 'Missing authentication token' }, 401);
   }
   
-  // Verify the token (basic check - in production would verify JWT properly)
-  // For now, we just check it exists and looks like a JWT
-  if (!token.includes('.') || token.length < 50) {
-    return c.json({ error: 'Invalid authentication token' }, 401);
+  // Properly verify the JWT token
+  const jwtSecret = c.env.JWT_SECRET || c.env.BETTER_AUTH_SECRET;
+  if (!jwtSecret) {
+    logWithContext('error', 'ai_tutor_test.stream.config_error', { meta: { error: 'JWT_SECRET not configured' } });
+    return c.json({ error: 'Server configuration error' }, 500);
+  }
+  
+  try {
+    const tokenUser = await verifyAccessToken(token, jwtSecret);
+    // Check for admin role
+    if (tokenUser.role !== 'admin') {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+  } catch (error) {
+    if (error instanceof TokenExpiredError) {
+      return c.json({ error: 'Token expired' }, 401);
+    }
+    if (error instanceof InvalidTokenError) {
+      return c.json({ error: 'Invalid token' }, 401);
+    }
+    logWithContext('error', 'ai_tutor_test.stream.auth_error', { meta: { error: String(error) } });
+    return c.json({ error: 'Authentication failed' }, 401);
   }
   
   const hskLevel = parseInt(c.req.query('hskLevel') || '1');
