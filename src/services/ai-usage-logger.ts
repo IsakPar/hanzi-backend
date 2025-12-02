@@ -159,7 +159,13 @@ export class AIUsageLogger {
   async log(entry: AIUsageEntry): Promise<void> {
     const id = nanoid();
     const totalTokens = entry.inputTokens + entry.outputTokens;
-    const costUsd = this.calculateCost(entry.model, entry.inputTokens, entry.outputTokens);
+    const costUsd = entry.cost ?? this.calculateCost(entry.model, entry.inputTokens, entry.outputTokens);
+
+    // Merge requestType into metadata for querying
+    const metadata = {
+      ...entry.metadata,
+      ...(entry.requestType ? { requestType: entry.requestType } : {}),
+    };
 
     try {
       await this.db.prepare(`
@@ -181,7 +187,7 @@ export class AIUsageLogger {
         entry.latencyMs || null,
         entry.success !== false ? 1 : 0,
         entry.errorMessage || null,
-        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
       ).run();
     } catch (error) {
       // Don't throw - logging should never break the main flow
@@ -394,6 +400,128 @@ export class AIUsageLogger {
     }
     
     return output.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  /**
+   * Get AI Tutor lesson generation summary
+   * Filters by requestType containing 'tutor_'
+   */
+  async getTutorUsageSummary(days: number = 0): Promise<{
+    totalLessons: number;
+    totalCost: number;
+    avgCostPerLesson: number;
+    totalTokens: number;
+    daily: Array<{
+      date: string;
+      lessons: number;
+      cost: number;
+      tokens: number;
+    }>;
+    recentLessons: Array<{
+      sessionId: string;
+      timestamp: string;
+      inputTokens: number;
+      outputTokens: number;
+      cost: number;
+      steps: number;
+      metadata?: Record<string, unknown>;
+    }>;
+  }> {
+    // Get all tutor-related entries
+    let baseQuery = `
+      FROM ai_usage_log 
+      WHERE metadata LIKE '%"requestType":"tutor_%'
+    `;
+    
+    if (days > 0) {
+      baseQuery += ` AND created_at >= strftime('%s', 'now', '-' || ${days} || ' days')`;
+    }
+
+    // Get totals grouped by session (each session = 1 lesson with multiple steps)
+    const totalsQuery = `
+      SELECT 
+        COUNT(DISTINCT session_id) as total_lessons,
+        SUM(cost_usd) as total_cost,
+        SUM(total_tokens) as total_tokens,
+        COUNT(*) as total_steps
+      ${baseQuery}
+    `;
+    
+    const totalsResult = await this.db.prepare(totalsQuery).first();
+    const totalLessons = (totalsResult?.total_lessons as number) || 0;
+    const totalCost = (totalsResult?.total_cost as number) || 0;
+    const totalTokens = (totalsResult?.total_tokens as number) || 0;
+
+    // Get daily breakdown (count unique sessions per day as lessons)
+    const dailyQuery = `
+      SELECT 
+        date(created_at, 'unixepoch') as date,
+        COUNT(DISTINCT session_id) as lessons,
+        SUM(cost_usd) as cost,
+        SUM(total_tokens) as tokens
+      ${baseQuery}
+      GROUP BY date(created_at, 'unixepoch')
+      ORDER BY date DESC
+      LIMIT 30
+    `;
+    
+    const dailyResult = await this.db.prepare(dailyQuery).all();
+    const daily = (dailyResult.results || []).map(row => ({
+      date: row.date as string,
+      lessons: (row.lessons as number) || 0,
+      cost: (row.cost as number) || 0,
+      tokens: (row.tokens as number) || 0,
+    }));
+
+    // Get recent individual lessons (grouped by session)
+    const recentQuery = `
+      SELECT 
+        session_id,
+        MAX(created_at) as timestamp,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cost_usd) as cost,
+        COUNT(*) as steps,
+        GROUP_CONCAT(metadata) as all_metadata
+      ${baseQuery}
+      GROUP BY session_id
+      ORDER BY timestamp DESC
+      LIMIT 20
+    `;
+    
+    const recentResult = await this.db.prepare(recentQuery).all();
+    const recentLessons = (recentResult.results || []).map(row => {
+      // Try to parse first metadata for lesson info
+      let metadata: Record<string, unknown> | undefined;
+      try {
+        const allMeta = row.all_metadata as string;
+        if (allMeta) {
+          const firstMeta = allMeta.split(',')[0];
+          metadata = JSON.parse(firstMeta);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+
+      return {
+        sessionId: row.session_id as string,
+        timestamp: new Date((row.timestamp as number) * 1000).toISOString(),
+        inputTokens: (row.input_tokens as number) || 0,
+        outputTokens: (row.output_tokens as number) || 0,
+        cost: (row.cost as number) || 0,
+        steps: (row.steps as number) || 0,
+        metadata,
+      };
+    });
+
+    return {
+      totalLessons,
+      totalCost,
+      avgCostPerLesson: totalLessons > 0 ? totalCost / totalLessons : 0,
+      totalTokens,
+      daily,
+      recentLessons,
+    };
   }
 }
 

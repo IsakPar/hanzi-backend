@@ -498,6 +498,7 @@ Generate the reading now.`;
         usage.completion_tokens
       );
       await this.usageLogger.log({
+        sessionId: this.requestId,
         model: CONFIG.MODEL,
         inputTokens: usage.prompt_tokens,
         outputTokens: usage.completion_tokens,
@@ -505,6 +506,11 @@ Generate the reading now.`;
         latencyMs: Date.now() - startTime,
         requestType: 'tutor_reading',
         userId: input.userId,
+        metadata: {
+          lessonNumber: input.lessonNumber,
+          hskLevel: input.hskLevel,
+          focusWords: input.focusWords,
+        },
       });
     }
 
@@ -645,6 +651,7 @@ Generate exercises now. Return ONLY the JSON, no other text.`;
         usage.completion_tokens
       );
       await this.usageLogger.log({
+        sessionId: this.requestId,
         model: CONFIG.MODEL,
         inputTokens: usage.prompt_tokens,
         outputTokens: usage.completion_tokens,
@@ -829,6 +836,7 @@ Validate now.`;
         usage.completion_tokens
       );
       await this.usageLogger.log({
+        sessionId: this.requestId,
         model: CONFIG.MODEL,
         inputTokens: usage.prompt_tokens,
         outputTokens: usage.completion_tokens,

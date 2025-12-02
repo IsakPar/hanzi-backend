@@ -1450,4 +1450,25 @@ app.get('/ai-usage/recent', async (c) => {
   }
 });
 
+/**
+ * GET /ai-usage/tutor-summary - Get AI Tutor lesson generation costs
+ * Query params:
+ *   - days: number (0 = all time, default = 0)
+ */
+app.get('/ai-usage/tutor-summary', async (c) => {
+  const logger = new AIUsageLogger(c.env.DB);
+  const daysParam = c.req.query('days');
+  const days = daysParam === '0' || daysParam === 'all' ? 0 : parseInt(daysParam || '0');
+  
+  try {
+    const tutorSummary = await logger.getTutorUsageSummary(days);
+    return c.json({
+      period: days === 0 ? 'All time' : `Last ${days} days`,
+      ...tutorSummary,
+    });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
 export default app;
