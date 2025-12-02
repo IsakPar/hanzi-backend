@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
 import { lessons, lessonBlocks, waitlist, tierLimits, vocabulary, stories } from '../schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
@@ -72,6 +72,53 @@ app.get('/waitlist', async (c) => {
     return c.json({ error: 'Failed to fetch waitlist' }, 500);
   }
 });
+
+// ========================================
+// HELPER: Validator Sync
+// ========================================
+
+/**
+ * Trigger Python validator sync after lesson changes
+ * Best-effort - failures don't block the main request
+ */
+async function triggerValidatorSync(env: { VALIDATOR_URL?: string; VALIDATOR_API_KEY?: string }) {
+  if (!env.VALIDATOR_URL || !env.VALIDATOR_API_KEY) {
+    logWithContext('warn', 'admin.validator_sync.skipped', {
+      meta: { reason: 'VALIDATOR_URL or VALIDATOR_API_KEY not configured' }
+    });
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${env.VALIDATOR_URL}/sync`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': env.VALIDATOR_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(10000), // 10s timeout
+    });
+    
+    if (response.ok) {
+      const result = await response.json() as { word_count?: number; changed?: boolean };
+      logWithContext('info', 'admin.validator_sync.success', {
+        meta: { wordCount: result.word_count, changed: result.changed }
+      });
+    } else {
+      logWithContext('warn', 'admin.validator_sync.failed', {
+        meta: { status: response.status }
+      });
+    }
+  } catch (e) {
+    logWithContext('warn', 'admin.validator_sync.error', {
+      meta: { error: (e as Error).message }
+    });
+  }
+}
+
+// ========================================
+// LESSON CREATION
+// ========================================
 
 // Zod Schema for Lesson Creation
 const createLessonSchema = z.object({
@@ -154,6 +201,11 @@ app.post('/lessons', zValidator('json', createLessonSchema), async (c) => {
       await lessonInsert;
     }
 
+    // Trigger validator sync if lesson has vocabulary
+    if (data.targetVocabulary && data.targetVocabulary.length > 0) {
+      triggerValidatorSync(c.env);
+    }
+    
     return c.json({ success: true, id: lessonId, lessonNumber });
   } catch (error) {
     logWithContext('error', 'admin.lesson_creation_failed', {
@@ -243,6 +295,287 @@ app.get('/lessons', async (c) => {
       meta: { error: (error as Error).message },
     });
     return c.json({ error: 'Failed to fetch lessons' }, 500);
+  }
+});
+
+// ========================================
+// LESSON UPDATE / DELETE / PUBLISH
+// ========================================
+
+/**
+ * PUT /lessons/:id - Update lesson metadata and optionally blocks
+ */
+const updateLessonSchema = z.object({
+  title: z.string().min(1).optional(),
+  subtitle: z.string().optional().nullable(),
+  hskLevel: z.number().int().min(1).max(6).optional(),
+  lessonNumber: z.number().int().min(1).optional(),
+  lessonType: z.enum(['lesson', 'speaking', 'mini_test', 'hsk_test']).optional(),
+  difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+  description: z.string().optional().nullable(),
+  estimatedMinutes: z.number().int().min(1).optional(),
+  grammarPoints: z.array(z.string()).optional().nullable(),
+  tags: z.array(z.string()).optional().nullable(),
+  targetVocabulary: z.array(z.string()).optional().nullable(),
+  isPublished: z.boolean().optional(),
+  blocks: z.array(z.object({
+    id: z.string().optional(),
+    type: z.string(),
+    content: z.record(z.unknown()),
+  })).optional(),
+});
+
+app.put('/lessons/:id', zValidator('json', updateLessonSchema), async (c) => {
+  const requestId = c.get('requestId');
+  const lessonId = c.req.param('id');
+  const data = c.req.valid('json');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    // Check if lesson exists
+    const existing = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    if (!existing[0]) {
+      return c.json({ error: 'Lesson not found' }, 404);
+    }
+    
+    // Update lesson metadata
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.subtitle !== undefined) updateData.subtitle = data.subtitle;
+    if (data.hskLevel !== undefined) updateData.hskLevel = data.hskLevel;
+    if (data.lessonNumber !== undefined) updateData.lessonNumber = data.lessonNumber;
+    if (data.lessonType !== undefined) updateData.lessonType = data.lessonType;
+    if (data.difficulty !== undefined) updateData.difficulty = data.difficulty;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.estimatedMinutes !== undefined) updateData.estimatedMinutes = data.estimatedMinutes;
+    if (data.grammarPoints !== undefined) updateData.grammarPoints = data.grammarPoints;
+    if (data.tags !== undefined) updateData.tags = data.tags;
+    if (data.targetVocabulary !== undefined) updateData.targetVocabulary = data.targetVocabulary;
+    if (data.isPublished !== undefined) updateData.isPublished = data.isPublished;
+    
+    await db.update(lessons).set(updateData).where(eq(lessons.id, lessonId));
+    
+    // Update blocks if provided
+    if (data.blocks) {
+      // Delete existing blocks
+      await db.delete(lessonBlocks).where(eq(lessonBlocks.lessonId, lessonId));
+      
+      // Insert new blocks
+      if (data.blocks.length > 0) {
+        await db.insert(lessonBlocks).values(
+          data.blocks.map((block, idx) => ({
+            id: block.id || crypto.randomUUID(),
+            lessonId,
+            type: block.type,
+            orderIndex: idx,
+            content: block.content,
+          }))
+        );
+      }
+    }
+    
+    logWithContext('info', 'admin.lesson.updated', {
+      requestId,
+      meta: { lessonId, updatedFields: Object.keys(updateData) }
+    });
+    
+    // Trigger validator sync if targetVocabulary or isPublished changed
+    if (data.targetVocabulary !== undefined || data.isPublished !== undefined) {
+      triggerValidatorSync(c.env);
+    }
+    
+    // Return updated lesson
+    const updated = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    const blocks = await db.select().from(lessonBlocks).where(eq(lessonBlocks.lessonId, lessonId)).orderBy(asc(lessonBlocks.orderIndex));
+    
+    return c.json({
+      ...updated[0],
+      blocks: blocks.map(b => ({ id: b.id, type: b.type, ...b.content as object })),
+    });
+  } catch (error) {
+    logWithContext('error', 'admin.lesson.update_failed', {
+      requestId,
+      meta: { lessonId, error: (error as Error).message }
+    });
+    return c.json({ error: 'Failed to update lesson' }, 500);
+  }
+});
+
+/**
+ * DELETE /lessons/:id - Delete a lesson and its blocks
+ */
+app.delete('/lessons/:id', async (c) => {
+  const requestId = c.get('requestId');
+  const lessonId = c.req.param('id');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    // Check if lesson exists
+    const existing = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    if (!existing[0]) {
+      return c.json({ error: 'Lesson not found' }, 404);
+    }
+    
+    // Delete blocks first (foreign key constraint)
+    await db.delete(lessonBlocks).where(eq(lessonBlocks.lessonId, lessonId));
+    
+    // Delete lesson
+    await db.delete(lessons).where(eq(lessons.id, lessonId));
+    
+    logWithContext('info', 'admin.lesson.deleted', {
+      requestId,
+      meta: { lessonId, title: existing[0].title }
+    });
+    
+    // Trigger validator sync
+    triggerValidatorSync(c.env);
+    
+    return c.json({ success: true, id: lessonId });
+  } catch (error) {
+    logWithContext('error', 'admin.lesson.delete_failed', {
+      requestId,
+      meta: { lessonId, error: (error as Error).message }
+    });
+    return c.json({ error: 'Failed to delete lesson' }, 500);
+  }
+});
+
+/**
+ * POST /lessons/:id/publish - Publish a lesson
+ */
+app.post('/lessons/:id/publish', async (c) => {
+  const requestId = c.get('requestId');
+  const lessonId = c.req.param('id');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const existing = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    if (!existing[0]) {
+      return c.json({ error: 'Lesson not found' }, 404);
+    }
+    
+    await db.update(lessons).set({
+      isPublished: true,
+      contentStatus: 'live',
+      updatedAt: new Date(),
+    }).where(eq(lessons.id, lessonId));
+    
+    logWithContext('info', 'admin.lesson.published', {
+      requestId,
+      meta: { lessonId, title: existing[0].title }
+    });
+    
+    // Trigger validator sync - new published lesson means curriculum changed
+    triggerValidatorSync(c.env);
+    
+    const updated = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    return c.json(updated[0]);
+  } catch (error) {
+    logWithContext('error', 'admin.lesson.publish_failed', {
+      requestId,
+      meta: { lessonId, error: (error as Error).message }
+    });
+    return c.json({ error: 'Failed to publish lesson' }, 500);
+  }
+});
+
+/**
+ * POST /lessons/:id/unpublish - Unpublish a lesson
+ */
+app.post('/lessons/:id/unpublish', async (c) => {
+  const requestId = c.get('requestId');
+  const lessonId = c.req.param('id');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const existing = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    if (!existing[0]) {
+      return c.json({ error: 'Lesson not found' }, 404);
+    }
+    
+    await db.update(lessons).set({
+      isPublished: false,
+      contentStatus: 'draft',
+      updatedAt: new Date(),
+    }).where(eq(lessons.id, lessonId));
+    
+    logWithContext('info', 'admin.lesson.unpublished', {
+      requestId,
+      meta: { lessonId, title: existing[0].title }
+    });
+    
+    // Trigger validator sync - curriculum changed
+    triggerValidatorSync(c.env);
+    
+    const updated = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    return c.json(updated[0]);
+  } catch (error) {
+    logWithContext('error', 'admin.lesson.unpublish_failed', {
+      requestId,
+      meta: { lessonId, error: (error as Error).message }
+    });
+    return c.json({ error: 'Failed to unpublish lesson' }, 500);
+  }
+});
+
+/**
+ * POST /lessons/:id/duplicate - Duplicate a lesson
+ */
+app.post('/lessons/:id/duplicate', async (c) => {
+  const requestId = c.get('requestId');
+  const lessonId = c.req.param('id');
+  const db = drizzle(c.env.DB);
+  
+  try {
+    // Get original lesson with blocks
+    const original = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+    if (!original[0]) {
+      return c.json({ error: 'Lesson not found' }, 404);
+    }
+    
+    const originalBlocks = await db.select().from(lessonBlocks).where(eq(lessonBlocks.lessonId, lessonId)).orderBy(asc(lessonBlocks.orderIndex));
+    
+    // Generate new ID and title
+    const newId = crypto.randomUUID();
+    const newTitle = `${original[0].title} (Copy)`;
+    
+    // Insert duplicated lesson (as draft)
+    await db.insert(lessons).values({
+      ...original[0],
+      id: newId,
+      title: newTitle,
+      isPublished: false,
+      contentStatus: 'draft',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    
+    // Duplicate blocks
+    if (originalBlocks.length > 0) {
+      await db.insert(lessonBlocks).values(
+        originalBlocks.map(b => ({
+          id: crypto.randomUUID(),
+          lessonId: newId,
+          type: b.type,
+          orderIndex: b.orderIndex,
+          content: b.content,
+        }))
+      );
+    }
+    
+    logWithContext('info', 'admin.lesson.duplicated', {
+      requestId,
+      meta: { originalId: lessonId, newId, title: newTitle }
+    });
+    
+    const newLesson = await db.select().from(lessons).where(eq(lessons.id, newId)).limit(1);
+    return c.json(newLesson[0]);
+  } catch (error) {
+    logWithContext('error', 'admin.lesson.duplicate_failed', {
+      requestId,
+      meta: { lessonId, error: (error as Error).message }
+    });
+    return c.json({ error: 'Failed to duplicate lesson' }, 500);
   }
 });
 
