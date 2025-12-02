@@ -12,8 +12,8 @@ const app = new Hono<AppEnv>();
 // Apply rate limiting to speech endpoints (ElevenLabs costs $$)
 app.use('/*', aiRateLimit);
 
-// All speech endpoints require admin auth
-app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
+// All speech endpoints require admin auth (ElevenLabs costs $$)
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // ═══════════════════════════════════════════════════════════
 // VOICE CONFIGURATION

@@ -10,13 +10,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import { createAuthenticatedUser, jsonAuthBearerHeaders } from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P0++: Mobile Exercise Tracking', () => {
   let ctx: TestContext;
+  let userToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
+    const user = await createAuthenticatedUser(ctx.db);
+    userToken = user.accessToken;
   });
 
   afterEach(async () => {
@@ -32,7 +36,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             lessonId: nanoid(),
@@ -61,7 +65,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             exerciseType: 'typing',
@@ -83,7 +87,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res1 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId,
             exerciseType: 'mcq',
@@ -99,7 +103,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res2 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId,
             exerciseType: 'mcq',
@@ -115,7 +119,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res3 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId,
             exerciseType: 'mcq',
@@ -136,7 +140,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             exerciseType: 'flashcard',
@@ -155,7 +159,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             exerciseType: 'typing',
@@ -174,7 +178,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             exerciseType: 'mcq',
@@ -193,7 +197,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             storyId: nanoid(),
             blockId: nanoid(),
@@ -208,13 +212,13 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       expect([200, 201]).toContain(res.status);
     });
 
-    it('accepts anonymous attempts', async () => {
+    it('accepts authenticated attempts without userId in body', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
-            // No userId - anonymous
+            // No userId in body - derived from auth token
             blockId: nanoid(),
             exerciseType: 'mcq',
             isCorrect: true,
@@ -231,7 +235,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             exerciseType: 'mcq',
             isCorrect: true,
@@ -248,7 +252,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             isCorrect: true,
@@ -265,7 +269,7 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/exercises/attempt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             blockId: nanoid(),
             exerciseType: 'mcq',
@@ -277,6 +281,23 @@ describe.sequential('P0++: Mobile Exercise Tracking', () => {
 
       expect([400, 422]).toContain(res.status);
     });
+
+    it('requires authentication', async () => {
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/analytics/exercises/attempt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            blockId: nanoid(),
+            exerciseType: 'mcq',
+            isCorrect: true,
+          }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      expect(res.status).toBe(401);
+    });
   });
 });
-

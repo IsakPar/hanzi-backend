@@ -8,6 +8,7 @@ import { eq, like, and, or, desc, asc, sql } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { apiRateLimit } from '../middleware/rate-limit';
+import { generateExampleSentence as generateExampleSentenceAI } from '../services/vocab-enhancer';
 
 // ═══════════════════════════════════════════════════════════
 // ELEVENLABS CONFIGURATION
@@ -783,6 +784,91 @@ app.post('/admin/:id/save-example-audio', zValidator('json', saveAudioSchema), a
       meta: { error: (err as Error).message },
     });
     return c.json({ error: 'Failed to save audio' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// AI EXAMPLE SENTENCE GENERATION
+// ═══════════════════════════════════════════════════════════
+
+const generateExampleSchema = z.object({
+  regenerate: z.boolean().optional().default(false),
+});
+
+/**
+ * POST /vocabulary/admin/:id/generate-example - Generate example sentence using AI
+ */
+app.post('/admin/:id/generate-example', zValidator('json', generateExampleSchema), async (c) => {
+  const id = c.req.param('id');
+  const { regenerate } = c.req.valid('json');
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+  const config = c.get('config');
+
+  try {
+    // Get the vocabulary entry
+    const entry = await db.select().from(vocabulary).where(eq(vocabulary.id, id)).get();
+    
+    if (!entry) {
+      return c.json({ error: 'Vocabulary not found' }, 404);
+    }
+
+    // Check if already has example and not regenerating
+    if (entry.exampleChinese && !regenerate) {
+      return c.json({
+        success: true,
+        sentence: {
+          chinese: entry.exampleChinese,
+          pinyin: entry.examplePinyin || '',
+          english: entry.exampleEnglish || '',
+        },
+        cached: true,
+      });
+    }
+
+    // Get OpenRouter API key
+    const apiKey = config?.secrets?.openRouterApiKey;
+    if (!apiKey) {
+      logWithContext('error', 'vocabulary.generate_example.no_api_key', { requestId });
+      return c.json({ error: 'AI service not configured' }, 500);
+    }
+
+    // Generate example sentence using AI
+    const result = await generateExampleSentenceAI(
+      entry.hanzi,
+      entry.english,
+      entry.hskLevel,
+      apiKey,
+      requestId
+    );
+
+    // Save the generated example to the vocabulary entry
+    await db
+      .update(vocabulary)
+      .set({
+        exampleChinese: result.sentence.chinese,
+        examplePinyin: result.sentence.pinyin,
+        exampleEnglish: result.sentence.english,
+      })
+      .where(eq(vocabulary.id, id));
+
+    logWithContext('info', 'vocabulary.generate_example.success', {
+      requestId,
+      meta: { id, hanzi: entry.hanzi, tokensUsed: result.tokensUsed },
+    });
+
+    return c.json({
+      success: true,
+      sentence: result.sentence,
+      tokensUsed: result.tokensUsed,
+      cached: false,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.generate_example.failed', {
+      requestId,
+      meta: { id, error: (err as Error).message },
+    });
+    return c.json({ error: 'Failed to generate example sentence', details: (err as Error).message }, 500);
   }
 });
 

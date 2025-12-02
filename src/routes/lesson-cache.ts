@@ -28,8 +28,8 @@ const app = new Hono<AppEnv>();
 // Apply rate limiting (AI generation is expensive)
 app.use('/*', aiRateLimit);
 
-// Auth required - admin only
-app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
+// Auth required - admin only (cache operations are operational tooling)
+app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 // Helper to get cache service
 const getCacheService = (env: AppEnv['Bindings'], requestId: string) => {

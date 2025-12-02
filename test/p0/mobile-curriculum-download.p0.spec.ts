@@ -66,7 +66,8 @@ describe.sequential('P0+: Mobile Curriculum Download', () => {
       if (res.status === 200) {
         const body = await res.json();
         expect(body.vocabulary || body.words).toBeDefined();
-        expect(body.version || body.meta?.version).toBeDefined();
+        // API returns contentVersion, not version
+        expect(body.contentVersion).toBeDefined();
       }
     });
 
@@ -94,7 +95,7 @@ describe.sequential('P0+: Mobile Curriculum Download', () => {
       expect([200, 404]).toContain(res.status);
     });
 
-    it('includes practice data with vocabulary', async () => {
+    it('includes practice data with lessons', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/curriculum/hsk/1/download', {
           headers: authBearerHeaders(userToken),
@@ -105,13 +106,14 @@ describe.sequential('P0+: Mobile Curriculum Download', () => {
 
       if (res.status === 200) {
         const body = await res.json();
-        const vocab = body.vocabulary || body.words;
-        
-        if (vocab && vocab.length > 0) {
-          // Check first word has practice data
-          const firstWord = vocab[0];
-          // Should have alternatives for MCQ generation
-          expect(firstWord.alternatives || firstWord.practiceData).toBeDefined();
+        // Practice data (with alternatives) is in lessons, not vocabulary
+        // Vocabulary items have introLessonIndex but not alternatives
+        expect(body.lessons).toBeDefined();
+        expect(Array.isArray(body.lessons)).toBe(true);
+        // If lessons exist with practiceData, verify structure
+        const lessonWithPractice = body.lessons?.find((l: { practiceData?: unknown }) => l.practiceData);
+        if (lessonWithPractice) {
+          expect(lessonWithPractice.practiceData).toHaveProperty('slots');
         }
       }
     });
@@ -169,7 +171,8 @@ describe.sequential('P0+: Mobile Curriculum Download', () => {
 
       if (res.status === 200) {
         const body = await res.json();
-        expect(body.version).toBeDefined();
+        // API returns contentVersion, not version
+        expect(body.contentVersion).toBeDefined();
       }
     });
 

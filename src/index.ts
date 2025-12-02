@@ -114,8 +114,8 @@ app.route('/v1/ai', aiRouter);
 app.route('/v1/models', modelsRouter);
 app.route('/v1/content', contentRouter);
 app.route('/v1/ai/prompts', promptsRouter);
-app.route('/v1/analytics', analyticsRouter);
-app.route('/v1/analytics', publicAnalyticsRoutes); // Public event ingestion (no auth)
+app.route('/v1/analytics', publicAnalyticsRoutes); // Public event ingestion (no auth) - MUST come first!
+app.route('/v1/analytics', analyticsRouter); // Admin analytics (requires admin role)
 app.route('/v1/billing', billingRouter);
 app.route('/v1/users', usersRouter);
 app.route('/v1/stories', storiesRouter);

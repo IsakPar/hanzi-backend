@@ -12,13 +12,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import { createAuthenticatedUser, jsonAuthBearerHeaders } from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P0+++: Mobile Event Sync', () => {
   let ctx: TestContext;
+  let userToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
+    const user = await createAuthenticatedUser(ctx.db);
+    userToken = user.accessToken;
   });
 
   afterEach(async () => {
@@ -58,7 +62,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             events,
             appVersion: '1.0.0',
@@ -94,7 +98,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -141,7 +145,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -169,7 +173,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -194,7 +198,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -220,7 +224,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -234,7 +238,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events: [] }),
         }),
         ctx.env,
@@ -257,7 +261,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -280,7 +284,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -303,7 +307,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -311,6 +315,27 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       );
 
       expect([400, 422]).toContain(res.status);
+    });
+
+    it('requires authentication', async () => {
+      const events = [{
+        id: crypto.randomUUID(),
+        type: 'lesson.started',
+        timestamp: new Date().toISOString(),
+        payload: { lessonId: nanoid() },
+      }];
+
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/analytics/events/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ events }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      expect(res.status).toBe(401);
     });
   });
 
@@ -332,7 +357,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res1 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events: [event] }),
         }),
         ctx.env,
@@ -342,7 +367,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res2 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events: [event] }),
         }),
         ctx.env,
@@ -381,7 +406,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -436,7 +461,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -469,7 +494,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -496,7 +521,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             events,
             appVersion: '2.1.0',
@@ -521,7 +546,7 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             events,
             appVersion: '2.1.0',
@@ -536,4 +561,3 @@ describe.sequential('P0+++: Mobile Event Sync', () => {
     });
   });
 });
-

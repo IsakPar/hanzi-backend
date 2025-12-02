@@ -13,6 +13,7 @@ import {
   createAuthenticatedAdmin,
   createAuthenticatedUser,
   authBearerHeaders,
+  jsonAuthBearerHeaders,
 } from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
@@ -130,11 +131,11 @@ describe.sequential('P1: Session Derivation', () => {
         },
       ];
 
-      // Ingest events
+      // Ingest events (requires auth)
       await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events: [...session1Events, ...session2Events] }),
         }),
         ctx.env,
@@ -186,7 +187,7 @@ describe.sequential('P1: Session Derivation', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,
@@ -216,7 +217,7 @@ describe.sequential('P1: Session Derivation', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/events/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ events }),
         }),
         ctx.env,

@@ -74,9 +74,9 @@ describe.sequential('P0: Story Import/Export', () => {
       // Create a story first
       const storyId = nanoid();
       await ctx.db.prepare(`
-        INSERT INTO stories (id, title, chinese_title, description, hsk_level, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(storyId, 'Test Story', '测试故事', 'A test story', 1, 'published').run();
+        INSERT INTO stories (id, title, subtitle, description, hsk_level, content_status, is_published, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, strftime('%s', 'now'))
+      `).bind(storyId, 'Test Story', '测试故事', 'A test story', 1, 'live').run();
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${storyId}/export`, {

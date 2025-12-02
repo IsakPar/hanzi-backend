@@ -309,6 +309,12 @@ describe('Backup Metadata Validation', () => {
         ba_session: 5,
         refresh_tokens: 3,
         users: 10,
+        vocabulary: 1000,
+        lessons: 50,
+        stories: 20,
+        units: 5,
+        user_progress: 100,
+        user_vocabulary: 500,
         subscriptions: 8,
       },
       d1_dump_size_bytes: 1024,
@@ -347,7 +353,7 @@ describe('Storage Path Generation', () => {
     expect(key).toContain('2025');
     expect(key).toContain('12');
     expect(key).toContain('01');
-    expect(key).toEndWith('.json');
+    expect(key.endsWith('.json')).toBe(true);
   });
   
   it('sanitizes colons and dots in backup ID', () => {

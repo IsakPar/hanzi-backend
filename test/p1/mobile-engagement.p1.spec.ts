@@ -10,13 +10,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, executionContext, type TestContext } from '../helpers/test-app';
+import { createAuthenticatedUser, jsonAuthBearerHeaders } from '../fixtures/jwt-auth-helpers';
 import { nanoid } from 'nanoid';
 
 describe.sequential('P1: Mobile Engagement Tracking', () => {
   let ctx: TestContext;
+  let userToken: string;
 
   beforeEach(async () => {
     ctx = await createTestContext();
+    const user = await createAuthenticatedUser(ctx.db);
+    userToken = user.accessToken;
   });
 
   afterEach(async () => {
@@ -32,7 +36,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             storyId: nanoid(),
             sentencesRead: 15,
@@ -55,7 +59,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             storyId: nanoid(),
@@ -79,7 +83,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             storyId: nanoid(),
             wordsTapped: 25, // Many taps = confusing story
@@ -97,7 +101,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             storyId: nanoid(),
             audioPlays: 15, // Heavy audio usage
@@ -111,11 +115,11 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       expect([200, 201]).toContain(res.status);
     });
 
-    it('accepts anonymous reading', async () => {
+    it('accepts reading without userId in body (derived from auth)', async () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             storyId: nanoid(),
             sentencesRead: 10,
@@ -132,7 +136,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/stories/reading', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sentencesRead: 10,
           }),
@@ -142,6 +146,25 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       );
 
       expect([400, 422]).toContain(res.status);
+    });
+
+    // Note: This endpoint is intentionally public (no auth required)
+    // Mobile apps send analytics without requiring full authentication
+    it('accepts unauthenticated requests (public endpoint)', async () => {
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/analytics/stories/reading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storyId: nanoid(),
+            sentencesRead: 10,
+          }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      expect([200, 201]).toContain(res.status);
     });
   });
 
@@ -154,7 +177,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId: nanoid(),
             userId: nanoid(),
@@ -181,7 +204,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId,
             messageCount: 2,
@@ -196,7 +219,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId,
             messageCount: 10,
@@ -214,7 +237,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId: nanoid(),
             messageCount: 15,
@@ -233,7 +256,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId: nanoid(),
             grammarPointsCovered: ['suiran-danshi', 'bushi-ershi'],
@@ -251,7 +274,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId: nanoid(),
             vocabularyUsed: ['你好', '谢谢', '再见'],
@@ -268,7 +291,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             messageCount: 10,
           }),
@@ -284,7 +307,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/ai-tutor/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             sessionId: nanoid(),
             userRating: 10, // Invalid - should be 1-5
@@ -295,6 +318,25 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       );
 
       expect([400, 422]).toContain(res.status);
+    });
+
+    // Note: This endpoint is intentionally public (no auth required)
+    // Mobile apps send analytics without requiring full authentication
+    it('accepts unauthenticated requests (public endpoint)', async () => {
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/analytics/ai-tutor/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: nanoid(),
+            messageCount: 10,
+          }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      expect([200, 201]).toContain(res.status);
     });
   });
 
@@ -307,7 +349,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             activityType: 'lesson',
@@ -324,7 +366,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             activityType: 'story',
@@ -341,7 +383,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             activityType: 'vocab',
@@ -358,7 +400,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             activityType: 'ai_chat',
@@ -378,7 +420,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res1 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ userId, activityType: 'lesson' }),
         }),
         ctx.env,
@@ -389,7 +431,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res2 = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({ userId, activityType: 'lesson' }),
         }),
         ctx.env,
@@ -404,7 +446,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             activityType: 'lesson',
           }),
@@ -420,7 +462,7 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
       const res = await ctx.app.fetch(
         new Request('http://localhost/v1/analytics/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: jsonAuthBearerHeaders(userToken),
           body: JSON.stringify({
             userId: nanoid(),
             activityType: 'invalid_type',
@@ -432,6 +474,24 @@ describe.sequential('P1: Mobile Engagement Tracking', () => {
 
       expect([400, 422]).toContain(res.status);
     });
+
+    // Note: This endpoint is intentionally public (no auth required)
+    // Mobile apps send analytics without requiring full authentication
+    it('accepts unauthenticated requests (public endpoint)', async () => {
+      const res = await ctx.app.fetch(
+        new Request('http://localhost/v1/analytics/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: nanoid(),
+            activityType: 'lesson',
+          }),
+        }),
+        ctx.env,
+        executionContext
+      );
+
+      expect([200, 201]).toContain(res.status);
+    });
   });
 });
-

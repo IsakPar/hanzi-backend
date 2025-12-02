@@ -61,9 +61,9 @@ describe.sequential('P1: Tier Enforcement', () => {
       // Create a premium story
       const storyId = nanoid();
       await ctx.db.prepare(`
-        INSERT INTO stories (id, title, hsk_level, status, access_tier, created_at)
-        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(storyId, 'Premium Story', 2, 'published', 'premium').run();
+        INSERT INTO stories (id, title, hsk_level, content_status, is_published, access_tier, created_at)
+        VALUES (?, ?, ?, ?, 1, ?, strftime('%s', 'now'))
+      `).bind(storyId, 'Premium Story', 2, 'live', 'premium').run();
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${storyId}`, {
@@ -106,9 +106,9 @@ describe.sequential('P1: Tier Enforcement', () => {
       // Create a premium story
       const storyId = nanoid();
       await ctx.db.prepare(`
-        INSERT INTO stories (id, title, hsk_level, status, access_tier, created_at)
-        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(storyId, 'Premium Story', 2, 'published', 'premium').run();
+        INSERT INTO stories (id, title, hsk_level, content_status, is_published, access_tier, created_at)
+        VALUES (?, ?, ?, ?, 1, ?, strftime('%s', 'now'))
+      `).bind(storyId, 'Premium Story', 2, 'live', 'premium').run();
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${storyId}`, {
@@ -207,7 +207,8 @@ describe.sequential('P1: Tier Enforcement', () => {
 
       if (res.status === 200) {
         const body = await res.json();
-        expect(body.user?.tier).toBe('premium');
+        // Response is flat, tier is at top level (not nested under user)
+        expect(body.tier).toBe('premium');
       }
     });
   });
@@ -223,9 +224,9 @@ describe.sequential('P1: Tier Enforcement', () => {
       // Create free story
       const storyId = nanoid();
       await ctx.db.prepare(`
-        INSERT INTO stories (id, title, hsk_level, status, access_tier, created_at)
-        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(storyId, 'Free Story', 1, 'published', 'free').run();
+        INSERT INTO stories (id, title, hsk_level, content_status, is_published, access_tier, created_at)
+        VALUES (?, ?, ?, ?, 1, ?, strftime('%s', 'now'))
+      `).bind(storyId, 'Free Story', 1, 'live', 'free').run();
 
       const res = await ctx.app.fetch(
         new Request(`http://localhost/v1/stories/${storyId}`, {
