@@ -252,19 +252,19 @@ describe.sequential('P0: Cron Jobs', () => {
     };
 
     it('processes engagement events without errors', async () => {
-      // Seed some raw engagement events
-      const userId = nanoid();
+      // Seed some raw engagement events (anonymous - no user_id)
       const contentId = nanoid();
+      const timestamp = new Date().toISOString();
       
       await ctx.db.prepare(`
-        INSERT INTO engagement_events (id, user_id, event_type, content_id, content_type, created_at)
-        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(nanoid(), userId, 'lesson_started', contentId, 'lesson').run();
+        INSERT INTO engagement_events_raw (id, event_type, content_id, content_type, timestamp, processed, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, strftime('%s', 'now'))
+      `).bind(nanoid(), 'lesson.started', contentId, 'lesson', timestamp).run();
       
       await ctx.db.prepare(`
-        INSERT INTO engagement_events (id, user_id, event_type, content_id, content_type, created_at)
-        VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-      `).bind(nanoid(), userId, 'lesson_completed', contentId, 'lesson').run();
+        INSERT INTO engagement_events_raw (id, event_type, content_id, content_type, timestamp, processed, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, strftime('%s', 'now'))
+      `).bind(nanoid(), 'lesson.completed', contentId, 'lesson', timestamp).run();
       
       // Run aggregation
       const result = await handleEngagementAggregation(ctx.db, mockLog);
@@ -290,20 +290,20 @@ describe.sequential('P0: Cron Jobs', () => {
     });
 
     it('aggregates multiple event types', async () => {
-      const userId = nanoid();
+      const timestamp = new Date().toISOString();
       const events = [
-        { type: 'lesson_started', contentType: 'lesson' },
-        { type: 'lesson_completed', contentType: 'lesson' },
-        { type: 'story_started', contentType: 'story' },
-        { type: 'story_completed', contentType: 'story' },
-        { type: 'vocabulary_practiced', contentType: 'vocabulary' },
+        { type: 'lesson.started', contentType: 'lesson' },
+        { type: 'lesson.completed', contentType: 'lesson' },
+        { type: 'story.started', contentType: 'story' },
+        { type: 'story.completed', contentType: 'story' },
+        { type: 'vocab.reviewed', contentType: 'vocab' },
       ];
       
       for (const event of events) {
         await ctx.db.prepare(`
-          INSERT INTO engagement_events (id, user_id, event_type, content_id, content_type, created_at)
-          VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-        `).bind(nanoid(), userId, event.type, nanoid(), event.contentType).run();
+          INSERT INTO engagement_events_raw (id, event_type, content_id, content_type, timestamp, processed, created_at)
+          VALUES (?, ?, ?, ?, ?, 0, strftime('%s', 'now'))
+        `).bind(nanoid(), event.type, nanoid(), event.contentType, timestamp).run();
       }
       
       const result = await handleEngagementAggregation(ctx.db, mockLog);

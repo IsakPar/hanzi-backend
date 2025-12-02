@@ -28,6 +28,7 @@ import controlCenterRouter from './routes/control-center';
 import announcementsRouter from './routes/announcements';
 import lessonAlternativesRouter from './routes/lesson-alternatives';
 import { aiTutorRouter } from './routes/ai-tutor';
+import aiTutorTestRouter from './routes/ai-tutor-test';
 import healthRouter from './routes/health';
 import distractorsRouter from './routes/distractors';
 import { adminK6Router } from './routes/admin-k6';
@@ -137,6 +138,7 @@ app.route('/v1/control-center', controlCenterRouter); // Content staging system
 app.route('/v1/announcements', announcementsRouter); // SDUI announcements
 app.route('/v1/lesson-alternatives', lessonAlternativesRouter); // Alternatives & connected words
 app.route('/v1/ai-tutor', aiTutorRouter); // AI Tutor lesson generation
+app.route('/v1/ai-tutor-test', aiTutorTestRouter); // AI Tutor Test Lab (admin only)
 app.route('/v1/health', healthRouter); // Health checks and diagnostics
 app.route('/v1/distractors', distractorsRouter); // Pedagogic distractor generation
 
