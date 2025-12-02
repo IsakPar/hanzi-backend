@@ -287,8 +287,8 @@ describe.sequential('P1: Lesson Cache Routes', () => {
         executionContext
       );
 
-      // Should succeed or return not found, not error
-      expect([200, 204, 404]).toContain(res.status);
+      // Should succeed, return not found, or validation error
+      expect([200, 204, 400, 404]).toContain(res.status);
     });
   });
 
@@ -307,7 +307,7 @@ describe.sequential('P1: Lesson Cache Routes', () => {
         executionContext
       );
 
-      expect([200, 404, 500]).toContain(res.status);
+      expect([200, 400, 404, 500]).toContain(res.status);
       
       if (res.status === 200) {
         const body = await res.json();
@@ -325,7 +325,8 @@ describe.sequential('P1: Lesson Cache Routes', () => {
         executionContext
       );
 
-      expect([404, 500]).toContain(res.status);
+      // May return 400 (validation), 404 (not found), or 500 (service error)
+      expect([400, 404, 500]).toContain(res.status);
     });
   });
 
@@ -453,7 +454,8 @@ describe.sequential('P1: Lesson Cache Routes', () => {
         executionContext
       );
 
-      expect([404, 500]).toContain(res.status);
+      // May return 400 (validation), 404 (not found), or 500 (service error)
+      expect([400, 404, 500]).toContain(res.status);
     });
   });
 

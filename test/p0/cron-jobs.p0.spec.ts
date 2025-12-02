@@ -381,8 +381,9 @@ describe.sequential('P0: Cron Jobs', () => {
       const user = await createTestUser(ctx.db);
       
       // Query should work if columns exist
+      // Note: ba_user uses camelCase column names (createdAt, not created_at)
       const result = await ctx.db
-        .prepare('SELECT id, created_at, last_login_at, tier FROM ba_user WHERE id = ?')
+        .prepare('SELECT id, createdAt, last_login_at, tier FROM ba_user WHERE id = ?')
         .bind(user.id)
         .first();
       

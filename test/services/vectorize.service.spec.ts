@@ -403,7 +403,11 @@ describe.sequential('VectorizeService', () => {
       const mockAI = createMockAI();
       const mockVectorize = {
         ...createMockVectorize(),
-        describe: vi.fn().mockResolvedValue({ vectorCount: 1000, dimensions: 768 }),
+        // Vectorize API returns 'vectorsCount' (plural) and config.dimensions
+        describe: vi.fn().mockResolvedValue({ 
+          vectorsCount: 1000, 
+          config: { dimensions: 768 } 
+        }),
       };
       const service = new VectorizeService(mockVectorize as any, mockAI as any, 'test-request');
 

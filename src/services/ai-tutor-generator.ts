@@ -449,12 +449,19 @@ export class AITutorGenerator {
       return lesson;
       
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
       logWithContext('error', 'tutor.generate.error', {
         requestId: this.requestId,
-        meta: { error: (error as Error).message }
+        meta: { 
+          error: errorMessage,
+          stack: errorStack?.split('\n').slice(0, 5).join('\n'),
+        }
       });
       
       metadata.fallbackUsed = true;
+      metadata.warnings.push(`Fatal error: ${errorMessage}`);
       metadata.durationMs = Date.now() - startTime;
       return this.createFallbackLesson(input, metadata, startTime);
     }

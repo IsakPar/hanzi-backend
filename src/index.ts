@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import lessonsRouter from './routes/lessons';
 import adminRouter from './routes/admin';
@@ -45,41 +44,59 @@ const app = new Hono<AppEnv>();
 // Request context (requestId, logging)
 app.use('*', requestContextMiddleware);
 
-// Hardcoded allowed origins - more reliable than env parsing
-const ALLOWED_ORIGINS = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:3000',
-  'https://studio.polymasterlabs.com',
-  'https://api.studio.polymasterlabs.com',
-  'https://polymasterlabs.com',
-  'https://www.polymasterlabs.com',
-  'https://hanzimaster-studio.pages.dev',
-  'https://hanzimaster-portal.pages.dev',
-  'https://main.hanzimaster-portal.pages.dev',
-  'https://main.hanzimaster-studio.pages.dev',
-];
-
-// CORS middleware - simplified for token-based auth (no cookies needed)
-app.use('/*', cors({
-  origin: (origin) => {
-    // No origin = same-origin or non-browser request
-    if (!origin) return '*';
-    // Check if origin is allowed
-    if (ALLOWED_ORIGINS.includes(origin)) return origin;
-    // Also allow any *.pages.dev subdomain (Cloudflare preview deployments)
-    if (origin.endsWith('.pages.dev')) return origin;
-    // Reject unknown origins
+// CORS middleware - reads allowed origins from environment variable
+// Configure ALLOWED_ORIGINS in wrangler.jsonc as comma-separated list
+app.use('/*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  
+  // Parse allowed origins from environment (cached per request)
+  const allowedOriginsEnv = c.env.ALLOWED_ORIGINS || '';
+  const allowedOrigins = allowedOriginsEnv.split(',').map((o: string) => o.trim()).filter(Boolean);
+  
+  // Helper to check if origin is allowed
+  const isAllowed = (requestOrigin: string): boolean => {
+    // Check explicit list from environment
+    if (allowedOrigins.includes(requestOrigin)) return true;
+    // Allow any *.pages.dev subdomain (Cloudflare preview deployments)
+    if (requestOrigin.endsWith('.pages.dev')) return true;
+    return false;
+  };
+  
+  // Handle preflight OPTIONS request
+  if (c.req.method === 'OPTIONS') {
+    const headers: Record<string, string> = {
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+      'Access-Control-Expose-Headers': 'X-Request-ID',
+      'Access-Control-Max-Age': '86400',
+    };
+    
+    if (!origin) {
+      headers['Access-Control-Allow-Origin'] = '*';
+    } else if (isAllowed(origin)) {
+      headers['Access-Control-Allow-Origin'] = origin;
+    } else {
+      console.error('CORS Rejected (preflight):', origin);
+      return c.text('CORS not allowed', 403);
+    }
+    
+    return new Response(null, { status: 204, headers });
+  }
+  
+  // Process the request
+  await next();
+  
+  // Add CORS headers to response
+  if (!origin) {
+    c.res.headers.set('Access-Control-Allow-Origin', '*');
+  } else if (isAllowed(origin)) {
+    c.res.headers.set('Access-Control-Allow-Origin', origin);
+    c.res.headers.set('Access-Control-Expose-Headers', 'X-Request-ID');
+  } else {
     console.error('CORS Rejected:', origin);
-    return null;
-  },
-  // No credentials: true needed - we use Authorization header, not cookies
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-  exposeHeaders: ['X-Request-ID'],
-  maxAge: 86400, // Cache preflight for 24 hours
-}));
+    // Don't set CORS headers - browser will block the response
+  }
+});
 
 // Error Handler
 app.onError((err, c) => {

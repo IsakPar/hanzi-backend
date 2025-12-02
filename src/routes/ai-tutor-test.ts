@@ -149,7 +149,61 @@ app.post('/run', zValidator('json', runTestSchema), async (c) => {
       }, 500);
     }
 
-    addStep('config', 'success', 'Configuration validated');
+    addStep('config', 'success', 'Configuration validated', {
+      openrouterKeyPrefix: openrouterKey.slice(0, 10) + '...',
+      pythonUrl: pythonUrl,
+    });
+
+    // Step: Check Python validator is reachable
+    addStep('validator_check', 'running', 'Checking Python validator connection...');
+    try {
+      const validatorResponse = await fetch(`${pythonUrl}/health`, { 
+        method: 'GET',
+        signal: AbortSignal.timeout(5000) // 5s timeout
+      });
+      
+      if (validatorResponse.ok) {
+        addStep('validator_check', 'success', 'Python validator is reachable', {
+          status: validatorResponse.status,
+        });
+      } else {
+        addStep('validator_check', 'error', `Python validator returned ${validatorResponse.status}`, {
+          status: validatorResponse.status,
+        });
+      }
+    } catch (validatorError) {
+      const errMsg = validatorError instanceof Error ? validatorError.message : 'Unknown error';
+      addStep('validator_check', 'error', `Cannot reach Python validator: ${errMsg}`, {
+        url: pythonUrl,
+        error: errMsg,
+      });
+    }
+
+    // Step: Check vocabulary endpoint specifically
+    addStep('vocab_check', 'running', 'Testing vocabulary endpoint...');
+    try {
+      const vocabResponse = await fetch(`${pythonUrl}/get-vocabulary?max_lesson=${lessonPosition}`, { 
+        method: 'GET',
+        signal: AbortSignal.timeout(10000) // 10s timeout
+      });
+      
+      if (vocabResponse.ok) {
+        const vocabData = await vocabResponse.json() as { words: string[] };
+        addStep('vocab_check', 'success', `Got ${vocabData.words?.length || 0} allowed words`, {
+          wordCount: vocabData.words?.length || 0,
+          sampleWords: vocabData.words?.slice(0, 5),
+        });
+      } else {
+        addStep('vocab_check', 'error', `Vocabulary endpoint returned ${vocabResponse.status}`, {
+          status: vocabResponse.status,
+        });
+      }
+    } catch (vocabError) {
+      const errMsg = vocabError instanceof Error ? vocabError.message : 'Unknown error';
+      addStep('vocab_check', 'error', `Vocabulary endpoint failed: ${errMsg}`, {
+        error: errMsg,
+      });
+    }
 
     // Check cache first (unless bypassed)
     let cacheHit = false;
@@ -232,21 +286,75 @@ app.post('/run', zValidator('json', runTestSchema), async (c) => {
       addStep('simulate_slow', 'success', 'Delay complete');
     }
 
-    const lesson = await generator.generateLesson({
-      focusWords,
-      userLessonPosition: lessonPosition,
-      hskLevel,
-      userId: 'test_lab_user',
-    });
+    let lesson;
+    try {
+      lesson = await generator.generateLesson({
+        focusWords,
+        userLessonPosition: lessonPosition,
+        hskLevel,
+        userId: 'test_lab_user',
+      });
+    } catch (genError) {
+      const errorMsg = genError instanceof Error ? genError.message : 'Unknown generation error';
+      addStep('generate', 'error', `Generation threw: ${errorMsg}`, {
+        errorType: genError instanceof Error ? genError.name : 'Unknown',
+        stack: genError instanceof Error ? genError.stack?.split('\n').slice(0, 5) : undefined,
+      });
+      throw genError;
+    }
+
+    // Extract metadata for summary
+    const metadata = lesson.metadata;
+
+    // Check if fallback was used - this indicates something went wrong
+    if (metadata.fallbackUsed) {
+      addStep('generate', 'error', 'Generation failed - fallback used', {
+        warnings: metadata.warnings,
+        attempts: metadata.attempts,
+        durationMs: metadata.durationMs,
+      });
+      
+      // Add specific failure reasons
+      if (metadata.warnings.length > 0) {
+        metadata.warnings.forEach((warning, idx) => {
+          addStep(`warning_${idx}`, 'error', warning);
+        });
+      }
+      
+      if (metadata.attempts.reading === 0 && metadata.attempts.practice === 0) {
+        addStep('diagnosis', 'error', 'No generation attempts made - likely config or connection issue', {
+          openrouterKeyExists: !!openrouterKey,
+          pythonUrlExists: !!pythonUrl,
+          pythonUrl: pythonUrl,
+        });
+      }
+      
+      return c.json<TestResult>({
+        success: false,
+        lesson,
+        steps,
+        summary: {
+          totalDurationMs: Date.now() - startTime,
+          totalCost: metadata.totalCost,
+          cacheHit: false,
+          cacheKey,
+          preFilterScore: metadata.qualityMetrics?.preFilterScore,
+          preFilterPassed: metadata.qualityMetrics?.preFilterPassed,
+          attemptsReading: metadata.attempts.reading,
+          attemptsPractice: metadata.attempts.practice,
+          attemptsGrammar: metadata.attempts.grammarCheck,
+        },
+        error: `Generation failed: ${metadata.warnings.join(', ') || 'Unknown reason - check logs'}`,
+      });
+    }
 
     addStep('generate', 'success', 'Lesson generated successfully', {
       lessonId: lesson.id,
       exerciseCount: lesson.exercises.length,
       readingSentences: lesson.reading.sentences.length,
+      fallbackUsed: metadata.fallbackUsed,
+      attempts: metadata.attempts,
     });
-
-    // Extract metadata for summary
-    const metadata = lesson.metadata;
 
     return c.json<TestResult>({
       success: true,
