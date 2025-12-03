@@ -224,6 +224,7 @@ app.get('/blocks/:blockId/slots', async (c) => {
 });
 
 // Create slots for a block (parse sentence into words)
+// Supports vocabulary lookup: wordId can be "lookup:hanzi" to auto-resolve
 app.post('/blocks/:blockId/slots', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const blockId = c.req.param('blockId');
@@ -233,8 +234,26 @@ app.post('/blocks/:blockId/slots', async (c) => {
   await db.delete(schema.lessonBlockSlots)
     .where(eq(schema.lessonBlockSlots.blockId, blockId));
 
+  // Resolve vocabulary IDs for "lookup:hanzi" format
+  const resolvedWords = await Promise.all(words.map(async (word) => {
+    if (word.wordId.startsWith('lookup:')) {
+      const hanzi = word.wordId.substring(7); // Remove "lookup:" prefix
+      const vocab = await db.select()
+        .from(schema.vocabulary)
+        .where(eq(schema.vocabulary.hanzi, hanzi))
+        .limit(1);
+      
+      if (vocab.length > 0) {
+        return { ...word, wordId: vocab[0].id };
+      }
+      // If not found, generate a placeholder ID
+      return { ...word, wordId: `unknown_${nanoid(8)}` };
+    }
+    return word;
+  }));
+
   // Create new slots
-  const slots = words.map((word, index) => ({
+  const slots = resolvedWords.map((word, index) => ({
     id: nanoid(),
     blockId,
     position: index,
@@ -583,6 +602,9 @@ app.delete('/connected/:connId', async (c) => {
 // ═══════════════════════════════════════════════════════════
 
 // Get full lesson data with alternatives and connected words
+// Supports both:
+// 1. Slot-based alternatives (from slot_alternatives table) - preferred
+// 2. Content-based alternatives (from block.content.wordAlternatives) - fallback
 app.get('/lessons/:lessonId/export', async (c) => {
   const db = drizzle(c.env.DB, { schema });
   const lessonId = c.req.param('lessonId');
@@ -605,27 +627,54 @@ app.get('/lessons/:lessonId/export', async (c) => {
 
   // Get slots, alternatives, and connected words for each block
   const blocksWithData = await Promise.all(blocks.map(async (block) => {
+    // Try to get slots from DB
     const slots = await db.select()
       .from(schema.lessonBlockSlots)
       .where(eq(schema.lessonBlockSlots.blockId, block.id))
       .orderBy(schema.lessonBlockSlots.position);
 
-    const slotsWithAlternatives = await Promise.all(slots.map(async (slot) => {
-      const alternatives = await db.select()
-        .from(schema.slotAlternatives)
-        .where(and(
-          eq(schema.slotAlternatives.slotId, slot.id),
-          eq(schema.slotAlternatives.isApproved, true)
-        ));
+    let slotsWithAlternatives: Array<{
+      position: number;
+      wordId: string;
+      hanzi: string;
+      isFocus: boolean;
+      alternatives: string[];
+    }> = [];
 
-      return {
-        position: slot.position,
-        wordId: slot.wordId,
-        hanzi: slot.hanzi,
-        isFocus: slot.isFocus,
-        alternatives: alternatives.map(a => a.wordId)
-      };
-    }));
+    if (slots.length > 0) {
+      // Use slot_alternatives table data
+      slotsWithAlternatives = await Promise.all(slots.map(async (slot) => {
+        const alternatives = await db.select()
+          .from(schema.slotAlternatives)
+          .where(and(
+            eq(schema.slotAlternatives.slotId, slot.id),
+            eq(schema.slotAlternatives.isApproved, true)
+          ));
+
+        return {
+          position: slot.position,
+          wordId: slot.wordId,
+          hanzi: slot.hanzi,
+          isFocus: slot.isFocus,
+          alternatives: alternatives.map(a => a.wordId)
+        };
+      }));
+    } else {
+      // Fallback: extract from block.content.wordAlternatives (portal local state)
+      const content = block.content as any;
+      if (content?.wordAlternatives && content?.correctOrder) {
+        const correctOrder = content.correctOrder as string[];
+        const wordAlternatives = content.wordAlternatives as Record<number, Array<{ id: string; hanzi: string }>>;
+        
+        slotsWithAlternatives = correctOrder.map((hanzi, index) => ({
+          position: index,
+          wordId: `content:${hanzi}`, // Placeholder - mobile can look up by hanzi
+          hanzi,
+          isFocus: false,
+          alternatives: (wordAlternatives[index] || []).map(alt => alt.id)
+        }));
+      }
+    }
 
     const connectedWords = await db.select()
       .from(schema.blockConnectedWords)
@@ -637,7 +686,9 @@ app.get('/lessons/:lessonId/export', async (c) => {
     return {
       ...block,
       slots: slotsWithAlternatives,
-      connectedWords: connectedWords.map(cw => cw.wordId)
+      connectedWords: connectedWords.map(cw => cw.wordId),
+      // Also include raw wordAlternatives for mobile if present
+      wordAlternatives: (block.content as any)?.wordAlternatives || null
     };
   }));
 

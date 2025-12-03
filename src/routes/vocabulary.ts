@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { drizzle } from 'drizzle-orm/d1';
-import { vocabulary } from '../schema';
-import { eq, like, and, or, desc, asc, sql } from 'drizzle-orm';
+import { vocabulary, lessons } from '../schema';
+import { eq, like, and, or, desc, asc, sql, inArray } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { apiRateLimit } from '../middleware/rate-limit';
@@ -58,6 +58,7 @@ const searchSchema = z.object({
   query: z.string().optional(),
   hsk_level: z.coerce.number().int().min(1).max(9).optional(),
   category: z.string().optional(),
+  lesson_id: z.string().optional(), // Filter by lesson's targetVocabulary
   limit: z.coerce.number().int().min(1).max(1000).optional().default(50),  // Increased for bulk operations
   offset: z.coerce.number().int().min(0).optional().default(0),
   sort: z.enum(['hanzi', 'pinyin', 'hsk_level', 'category']).optional().default('hanzi'),
@@ -71,6 +72,10 @@ const createVocabSchema = z.object({
   category: z.string().min(1),
   hskLevel: z.number().int().min(1).max(9),
   tags: z.array(z.string()).optional(),
+  // Pedagogic metadata
+  pos: z.string().optional(),
+  tonePattern: z.string().optional(),
+  secondaryCategories: z.array(z.string()).optional(),
   // Audio and examples
   wordAudioR2Key: z.string().optional(),
   exampleChinese: z.string().optional(),
@@ -97,6 +102,29 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
 
   try {
     const conditions = [];
+
+    // Lesson filter - get vocabulary IDs from lesson's targetVocabulary
+    let lessonVocabIds: string[] | null = null;
+    if (filters.lesson_id) {
+      const lesson = await db
+        .select({ targetVocabulary: lessons.targetVocabulary })
+        .from(lessons)
+        .where(eq(lessons.id, filters.lesson_id))
+        .get();
+      
+      if (lesson && lesson.targetVocabulary) {
+        lessonVocabIds = lesson.targetVocabulary as string[];
+        if (lessonVocabIds.length > 0) {
+          conditions.push(inArray(vocabulary.id, lessonVocabIds));
+        } else {
+          // Empty targetVocabulary means no results
+          return c.json({ results: [], total: 0, limit: filters.limit, offset: filters.offset });
+        }
+      } else {
+        // Lesson not found or no targetVocabulary
+        return c.json({ results: [], total: 0, limit: filters.limit, offset: filters.offset });
+      }
+    }
 
     // Text search across hanzi, pinyin, and english
     // Escape special LIKE characters to prevent injection
@@ -164,6 +192,55 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
     });
     // Don't expose internal error details to client
     return c.json({ error: 'Search failed' }, 500);
+  }
+});
+
+/**
+ * GET /vocabulary/:id/lessons - Get lessons that contain this vocabulary word
+ */
+app.get('/:id/lessons', async (c) => {
+  const vocabId = c.req.param('id');
+  const db = drizzle(c.env.DB);
+
+  try {
+    // Get all lessons
+    const allLessons = await db
+      .select({
+        id: lessons.id,
+        title: lessons.title,
+        hskLevel: lessons.hskLevel,
+        lessonNumber: lessons.lessonNumber,
+        contentStatus: lessons.contentStatus,
+        targetVocabulary: lessons.targetVocabulary,
+      })
+      .from(lessons)
+      .orderBy(asc(lessons.hskLevel), asc(lessons.lessonNumber));
+
+    // Filter to lessons that contain this vocab ID
+    const containingLessons = allLessons
+      .filter(lesson => {
+        const targetVocab = (lesson.targetVocabulary as string[]) || [];
+        return targetVocab.includes(vocabId);
+      })
+      .map(lesson => ({
+        id: lesson.id,
+        title: lesson.title,
+        hskLevel: lesson.hskLevel,
+        lessonNumber: lesson.lessonNumber,
+        contentStatus: lesson.contentStatus,
+      }));
+
+    // Determine which is the "first" lesson (lowest HSK + lesson number)
+    const firstLessonId = containingLessons.length > 0 ? containingLessons[0].id : null;
+
+    return c.json({
+      vocabId,
+      lessons: containingLessons,
+      firstLessonId,
+      totalLessons: containingLessons.length,
+    });
+  } catch (err) {
+    return c.json({ error: 'Failed to fetch lessons for vocabulary' }, 500);
   }
 });
 
@@ -276,6 +353,10 @@ app.put('/admin/:id', zValidator('json', updateVocabSchema), async (c) => {
     if (data.examplePinyin !== undefined) updateData.examplePinyin = data.examplePinyin;
     if (data.exampleEnglish !== undefined) updateData.exampleEnglish = data.exampleEnglish;
     if (data.exampleAudioR2Key !== undefined) updateData.exampleAudioR2Key = data.exampleAudioR2Key;
+    // Pedagogic metadata
+    if (data.pos !== undefined) updateData.pos = data.pos;
+    if (data.tonePattern !== undefined) updateData.tonePattern = data.tonePattern;
+    if (data.secondaryCategories !== undefined) updateData.secondaryCategories = data.secondaryCategories;
 
     if (Object.keys(updateData).length === 0) {
       return c.json({ error: 'No fields to update' }, 400);
@@ -805,6 +886,200 @@ app.post('/admin/:id/save-example-audio', zValidator('json', saveAudioSchema), a
 });
 
 // ═══════════════════════════════════════════════════════════
+// SECONDARY CATEGORIES BULK TAGGING
+// ═══════════════════════════════════════════════════════════
+
+// Available secondary categories for AI to choose from
+const SECONDARY_CATEGORY_OPTIONS = [
+  'people', 'relationships', 'emotions', 'actions', 'descriptive',
+  'time', 'location', 'quantity', 'question', 'polite',
+  'formal', 'informal', 'spoken', 'written', 'idiom',
+  'measure', 'direction', 'color', 'size', 'state',
+  'weather', 'nature', 'body', 'health', 'education',
+  'work', 'travel', 'communication', 'daily-life', 'culture',
+];
+
+const bulkTagSecondaryCategoriesSchema = z.object({
+  wordIds: z.array(z.string()).min(1).max(50),
+});
+
+/**
+ * POST /vocabulary/admin/bulk-tag-secondary-categories - AI-tag secondary categories in bulk
+ */
+app.post('/admin/bulk-tag-secondary-categories', zValidator('json', bulkTagSecondaryCategoriesSchema), async (c) => {
+  const { wordIds } = c.req.valid('json');
+  const requestId = c.get('requestId');
+  const db = drizzle(c.env.DB);
+  const config = c.get('config');
+
+  const apiKey = config?.secrets?.openRouterApiKey;
+  if (!apiKey) {
+    return c.json({ error: 'AI service not configured' }, 500);
+  }
+
+  const results: { wordId: string; hanzi: string; secondaryCategories: string[] | null; success: boolean; error?: string }[] = [];
+  let aiCallsMade = 0;
+
+  // Get all words at once for efficiency
+  let words;
+  try {
+    words = await db.select()
+      .from(vocabulary)
+      .where(sql`${vocabulary.id} IN (${sql.join(wordIds.map(id => sql`${id}`), sql`, `)})`)
+      .all();
+  } catch (err) {
+    // If secondary_categories column doesn't exist, return helpful error
+    const errorMsg = (err as Error).message;
+    if (errorMsg.includes('secondary_categories') || errorMsg.includes('no such column')) {
+      return c.json({ 
+        error: 'Migration required', 
+        details: 'The secondary_categories column does not exist. Please run the migration: npx wrangler d1 execute hanzimaster-db --remote --file=drizzle/0043_secondary_categories.sql'
+      }, 400);
+    }
+    throw err;
+  }
+
+  const wordMap = new Map(words.map(w => [w.id, w]));
+
+  for (const wordId of wordIds) {
+    const word = wordMap.get(wordId);
+    
+    if (!word) {
+      results.push({ wordId, hanzi: '', secondaryCategories: null, success: false, error: 'Word not found' });
+      continue;
+    }
+
+    // Skip if already has secondary categories
+    if (word.secondaryCategories && (word.secondaryCategories as string[]).length > 0) {
+      results.push({ 
+        wordId, 
+        hanzi: word.hanzi, 
+        secondaryCategories: word.secondaryCategories as string[], 
+        success: true, 
+        error: 'Already tagged' 
+      });
+      continue;
+    }
+
+    try {
+      // Call AI to determine secondary categories
+      const prompt = `For the Chinese word "${word.hanzi}" (${word.pinyin}, meaning: ${word.english}, primary category: ${word.category}), 
+select 1-3 secondary semantic categories from this list that also apply:
+${SECONDARY_CATEGORY_OPTIONS.join(', ')}
+
+Return ONLY a JSON array of category names, e.g.: ["people", "relationships"]
+If none apply, return: []`;
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'deepseek/deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are a Chinese language expert. Return only valid JSON arrays.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 50,
+          temperature: 0,
+        }),
+      });
+
+      aiCallsMade++;
+      const result = await response.json() as any;
+      const aiResponse = result.choices?.[0]?.message?.content?.trim() || '[]';
+      
+      // Parse the JSON response
+      let categories: string[] = [];
+      try {
+        categories = JSON.parse(aiResponse);
+        // Validate categories are from our list
+        categories = categories.filter(cat => SECONDARY_CATEGORY_OPTIONS.includes(cat));
+      } catch {
+        // If parsing fails, try to extract categories from the text
+        categories = SECONDARY_CATEGORY_OPTIONS.filter(cat => aiResponse.toLowerCase().includes(cat));
+      }
+
+      // Update the word
+      await db.update(vocabulary)
+        .set({ secondaryCategories: categories })
+        .where(eq(vocabulary.id, wordId));
+
+      results.push({ wordId, hanzi: word.hanzi, secondaryCategories: categories, success: true });
+
+    } catch (err) {
+      logWithContext('error', 'vocabulary.bulk_tag_secondary.failed', {
+        requestId,
+        meta: { wordId, error: (err as Error).message },
+      });
+      results.push({ wordId, hanzi: word.hanzi, secondaryCategories: null, success: false, error: (err as Error).message });
+    }
+  }
+
+  logWithContext('info', 'vocabulary.bulk_tag_secondary.complete', {
+    requestId,
+    meta: { total: wordIds.length, successful: results.filter(r => r.success).length, aiCalls: aiCallsMade },
+  });
+
+  return c.json({
+    results,
+    summary: {
+      total: wordIds.length,
+      successful: results.filter(r => r.success && !r.error?.includes('Already')).length,
+      alreadyTagged: results.filter(r => r.error?.includes('Already')).length,
+      failed: results.filter(r => !r.success).length,
+      aiCallsMade,
+    },
+    availableCategories: SECONDARY_CATEGORY_OPTIONS,
+  });
+});
+
+/**
+ * GET /vocabulary/admin/secondary-categories - Get list of available secondary categories
+ */
+app.get('/admin/secondary-categories', async (c) => {
+  return c.json({ categories: SECONDARY_CATEGORY_OPTIONS });
+});
+
+/**
+ * GET /vocabulary/admin/secondary-category-stats - Get coverage stats for secondary categories
+ */
+app.get('/admin/secondary-category-stats', async (c) => {
+  const db = drizzle(c.env.DB);
+
+  try {
+    const total = await db.select({ count: sql<number>`count(*)` }).from(vocabulary).get();
+    const withSecondary = await db.select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(sql`secondary_categories IS NOT NULL AND secondary_categories != '[]'`)
+      .get();
+
+    return c.json({
+      total: total?.count || 0,
+      withSecondaryCategories: withSecondary?.count || 0,
+      percent: total?.count ? Math.round((withSecondary?.count || 0) / total.count * 100) : 0,
+      availableCategories: SECONDARY_CATEGORY_OPTIONS,
+    });
+  } catch (err) {
+    // Column might not exist yet
+    const errorMsg = (err as Error).message;
+    if (errorMsg.includes('secondary_categories') || errorMsg.includes('no such column')) {
+      const total = await db.select({ count: sql<number>`count(*)` }).from(vocabulary).get();
+      return c.json({
+        total: total?.count || 0,
+        withSecondaryCategories: 0,
+        percent: 0,
+        availableCategories: SECONDARY_CATEGORY_OPTIONS,
+        migrationRequired: true,
+      });
+    }
+    throw err;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // AI EXAMPLE SENTENCE GENERATION
 // ═══════════════════════════════════════════════════════════
 
@@ -887,6 +1162,116 @@ app.post('/admin/:id/generate-example', zValidator('json', generateExampleSchema
       meta: { id, error: (err as Error).message },
     });
     return c.json({ error: 'Failed to generate example sentence', details: (err as Error).message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// VOCABULARY HEALTH CHECK (for lesson editor)
+// ═══════════════════════════════════════════════════════════
+
+const healthCheckSchema = z.object({
+  words: z.array(z.string()).min(1).max(200),
+});
+
+interface WordHealth {
+  hanzi: string;
+  exists: boolean;
+  id?: string;
+  pinyin?: string;
+  english?: string;
+  category?: string;
+  hasAudio: boolean;
+  hasCategory: boolean;
+  hasExample: boolean;
+  hasTags: boolean;
+  hasSecondaryCategories: boolean;
+}
+
+/**
+ * POST /vocabulary/admin/health-check
+ * Check vocabulary health for a list of words (used by lesson editor)
+ */
+app.post('/admin/health-check', zValidator('json', healthCheckSchema), async (c) => {
+  const { words } = c.req.valid('json');
+  const requestId = c.get('requestId');
+  const db = drizzle(c.env.DB);
+
+  logWithContext('info', 'vocabulary.health_check.start', {
+    requestId,
+    meta: { wordCount: words.length },
+  });
+
+  try {
+    // Get all vocabulary entries for the requested words
+    const entries = await db.select()
+      .from(vocabulary)
+      .where(inArray(vocabulary.hanzi, words));
+
+    // Create a map for quick lookup
+    const vocabMap = new Map(entries.map(e => [e.hanzi, e]));
+
+    // Build health report for each word
+    const results: WordHealth[] = words.map(word => {
+      const entry = vocabMap.get(word);
+      
+      if (!entry) {
+        return {
+          hanzi: word,
+          exists: false,
+          hasAudio: false,
+          hasCategory: false,
+          hasExample: false,
+          hasTags: false,
+          hasSecondaryCategories: false,
+        };
+      }
+
+      return {
+        hanzi: word,
+        exists: true,
+        id: entry.id,
+        pinyin: entry.pinyin,
+        english: entry.english,
+        category: entry.category,
+        hasAudio: !!entry.wordAudioR2Key,
+        hasCategory: !!entry.category && entry.category !== 'other',
+        hasExample: !!entry.exampleChinese,
+        hasTags: !!entry.pos || !!entry.tonePattern,
+        hasSecondaryCategories: Array.isArray(entry.secondaryCategories) && entry.secondaryCategories.length > 0,
+      };
+    });
+
+    // Calculate summary stats
+    const summary = {
+      total: results.length,
+      existing: results.filter(r => r.exists).length,
+      missing: results.filter(r => !r.exists).length,
+      missingAudio: results.filter(r => r.exists && !r.hasAudio).length,
+      missingCategory: results.filter(r => r.exists && !r.hasCategory).length,
+      missingExample: results.filter(r => r.exists && !r.hasExample).length,
+      missingTags: results.filter(r => r.exists && !r.hasTags).length,
+      missingSecondaryCategories: results.filter(r => r.exists && !r.hasSecondaryCategories).length,
+    };
+
+    const totalIssues = summary.missing + summary.missingAudio + summary.missingCategory + 
+                        summary.missingExample + summary.missingTags;
+
+    logWithContext('info', 'vocabulary.health_check.complete', {
+      requestId,
+      meta: { ...summary, totalIssues },
+    });
+
+    return c.json({
+      results,
+      summary,
+      totalIssues,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.health_check.failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Health check failed' }, 500);
   }
 });
 

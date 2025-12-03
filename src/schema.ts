@@ -47,6 +47,7 @@ export const vocabulary = sqliteTable('vocabulary', {
   // Pedagogic metadata for distractor generation
   pos: text('pos'),         // part of speech: noun, verb, adj, etc.
   tonePattern: text('tone_pattern'), // e.g., "1-1", "3-3", "2-4"
+  secondaryCategories: text('secondary_categories', { mode: 'json' }).$type<string[]>(), // e.g., ["people", "relationships"]
   // Audio and examples
   wordAudioR2Key: text('word_audio_r2_key'),
   exampleChinese: text('example_chinese'),

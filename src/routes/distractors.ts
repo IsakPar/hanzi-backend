@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, ne, and, lte, sql, notInArray } from 'drizzle-orm';
+import { eq, ne, and, or, lte, sql, notInArray } from 'drizzle-orm';
 import { vocabulary } from '../schema';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
 import { bulkTaggingRateLimit } from '../middleware/rate-limit';
@@ -58,10 +58,12 @@ interface DistractorResponse {
     category: string;
     pos?: string | null;
     tonePattern?: string | null;
+    secondaryCategories?: string[] | null;
     hskLevel: number;
   };
   distractors: {
     sameCategory: VocabWord[];
+    sameSecondaryCategory: VocabWord[];
     samePos: VocabWord[];
     sameTone: VocabWord[];
     similarLength: VocabWord[];
@@ -81,11 +83,12 @@ const distractorSchema = z.object({
   count: z.number().int().min(5).max(30).default(15),
   strategies: z.array(z.enum([
     'same-category',
+    'same-secondary-category',
     'same-pos',
     'same-tone',
     'similar-length',
     'semantic'
-  ])).default(['same-category', 'same-pos', 'same-tone', 'similar-length', 'semantic']),
+  ])).default(['same-category', 'same-secondary-category', 'same-pos', 'same-tone', 'similar-length', 'semantic']),
 });
 
 const tagSchema = z.object({
@@ -217,10 +220,12 @@ app.get('/', zValidator('query', distractorSchema), async (c) => {
       category: sourceWord.category,
       pos: sourceWord.pos,
       tonePattern: effectiveTonePattern,
+      secondaryCategories: (sourceWord as any).secondaryCategories || null,
       hskLevel: sourceWord.hskLevel,
     },
     distractors: {
       sameCategory: [],
+      sameSecondaryCategory: [],
       samePos: [],
       sameTone: [],
       similarLength: [],
@@ -252,6 +257,45 @@ app.get('/', zValidator('query', distractorSchema), async (c) => {
       pos: r.pos,
       tonePattern: r.tonePattern,
     })), seen, 8);
+  }
+
+  // 2.5. Same secondary category (also great distractors)
+  // Note: This is optional and will silently skip if column doesn't exist
+  const secondaryCategories = (sourceWord as any).secondaryCategories as string[] | null;
+  if (params.strategies.includes('same-secondary-category') && secondaryCategories && secondaryCategories.length > 0) {
+    try {
+      // Search for words that share any secondary category using LIKE (more compatible)
+      // Build a LIKE condition for each secondary category
+      const likeConditions = secondaryCategories.map(cat => 
+        sql`${vocabulary.secondaryCategories} LIKE ${'%"' + cat + '"%'}`
+      );
+      
+      const rows = await db.select()
+        .from(vocabulary)
+        .where(and(
+          ne(vocabulary.id, sourceWord.id),
+          lte(vocabulary.hskLevel, params.maxHskLevel),
+          or(...likeConditions)
+        ))
+        .limit(10);
+      
+      pushUnique(response.distractors.sameSecondaryCategory, rows.map(r => ({
+        id: r.id,
+        hanzi: r.hanzi,
+        pinyin: r.pinyin,
+        english: r.english,
+        category: r.category,
+        hskLevel: r.hskLevel,
+        pos: r.pos,
+        tonePattern: r.tonePattern,
+      })), seen, 6);
+    } catch (err) {
+      // Silently skip if secondary_categories column doesn't exist yet
+      logWithContext('warn', 'distractors.secondary_category_skip', {
+        requestId,
+        meta: { error: (err as Error).message },
+      });
+    }
   }
 
   // 3. Same POS (good distractors)
@@ -376,6 +420,7 @@ app.get('/', zValidator('query', distractorSchema), async (c) => {
   // Calculate total
   response.total = 
     response.distractors.sameCategory.length +
+    response.distractors.sameSecondaryCategory.length +
     response.distractors.samePos.length +
     response.distractors.sameTone.length +
     response.distractors.similarLength.length +
@@ -388,6 +433,7 @@ app.get('/', zValidator('query', distractorSchema), async (c) => {
       total: response.total,
       byStrategy: {
         sameCategory: response.distractors.sameCategory.length,
+        sameSecondaryCategory: response.distractors.sameSecondaryCategory.length,
         samePos: response.distractors.samePos.length,
         sameTone: response.distractors.sameTone.length,
         similarLength: response.distractors.similarLength.length,
