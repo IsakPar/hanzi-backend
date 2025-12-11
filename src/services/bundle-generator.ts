@@ -191,14 +191,54 @@ export class BundleGenerator {
         blocksByLesson.set(block.lessonId, existing);
       }
 
-      // 4. Fetch vocabulary for this HSK level
-      const levelVocab = await this.db
-        .select()
-        .from(vocabulary)
-        .where(eq(vocabulary.hskLevel, hskLevel))
-        .orderBy(asc(vocabulary.hanzi));
+      // 4. Collect vocab IDs from lessons' targetVocabulary
+      const vocabIdsInLessons = new Set<string>();
+      for (const lesson of levelLessons) {
+        const targetVocab = (lesson.targetVocabulary as string[]) || [];
+        targetVocab.forEach(id => vocabIdsInLessons.add(id));
+      }
 
-      // 5. Build audio file list
+      logWithContext('info', 'bundle.vocab_from_lessons', {
+        requestId: this.requestId,
+        meta: { hskLevel, vocabIdsCount: vocabIdsInLessons.size },
+      });
+
+      // 5. Fetch only vocab used in lessons AND that passes quality gate
+      let levelVocab: typeof vocabulary.$inferSelect[] = [];
+      if (vocabIdsInLessons.size > 0) {
+        const allLessonVocab = await this.db
+          .select()
+          .from(vocabulary)
+          .where(eq(vocabulary.hskLevel, hskLevel))
+          .orderBy(asc(vocabulary.hanzi));
+        
+        // Filter to only vocab used in lessons AND complete (has audio, example, category)
+        levelVocab = allLessonVocab.filter(v => {
+          const inLesson = vocabIdsInLessons.has(v.id);
+          const hasAudio = !!v.wordAudioR2Key;
+          const hasExample = !!v.exampleChinese;
+          const hasCategory = !!v.category;
+          const isComplete = hasAudio && hasExample && hasCategory;
+          
+          if (inLesson && !isComplete) {
+            errors.push(`Skipping incomplete vocab: ${v.hanzi} (${!hasAudio ? 'no audio' : ''} ${!hasExample ? 'no example' : ''} ${!hasCategory ? 'no category' : ''})`);
+          }
+          
+          return inLesson && isComplete;
+        });
+
+        logWithContext('info', 'bundle.vocab_filtered', {
+          requestId: this.requestId,
+          meta: { 
+            hskLevel, 
+            inLessons: vocabIdsInLessons.size,
+            afterQualityGate: levelVocab.length,
+            skipped: vocabIdsInLessons.size - levelVocab.length,
+          },
+        });
+      }
+
+      // 6. Build audio file list (only from filtered vocab)
       const audioFiles: AudioFileInfo[] = [];
       for (const vocab of levelVocab) {
         if (vocab.wordAudioR2Key) {
