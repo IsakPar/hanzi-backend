@@ -50,10 +50,12 @@ export const vocabulary = sqliteTable('vocabulary', {
   secondaryCategories: text('secondary_categories', { mode: 'json' }).$type<string[]>(), // e.g., ["people", "relationships"]
   // Audio and examples
   wordAudioR2Key: text('word_audio_r2_key'),
+  wordAudioUpdatedAt: integer('word_audio_updated_at'), // Unix timestamp for cache busting
   exampleChinese: text('example_chinese'),
   examplePinyin: text('example_pinyin'),
   exampleEnglish: text('example_english'),
   exampleAudioR2Key: text('example_audio_r2_key'),
+  exampleAudioUpdatedAt: integer('example_audio_updated_at'), // Unix timestamp for cache busting
 }, (table) => ({
   categoryIdx: index('vocab_category_idx').on(table.category),
   levelIdx: index('vocab_level_idx').on(table.hskLevel),
@@ -252,6 +254,32 @@ export const testDevices = sqliteTable('test_devices', {
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
 }, (table) => ({
   deviceIdIdx: index('test_devices_device_id_idx').on(table.deviceId),
+}));
+
+// --- RELEASES (Content Shipping History) ---
+export const releases = sqliteTable('releases', {
+  id: text('id').primaryKey(),
+  hskLevel: integer('hsk_level').notNull(),
+  version: text('version').notNull(),
+  releasedBy: text('released_by'),
+  releaseNotes: text('release_notes'),
+  
+  // Stats snapshot
+  lessonsAdded: integer('lessons_added').default(0),
+  lessonsUpdated: integer('lessons_updated').default(0),
+  lessonsRemoved: integer('lessons_removed').default(0),
+  vocabularyAdded: integer('vocabulary_added').default(0),
+  vocabularyUpdated: integer('vocabulary_updated').default(0),
+  
+  // Content snapshot (for rollback)
+  lessonIds: text('lesson_ids', { mode: 'json' }).$type<string[]>(),
+  contentHash: text('content_hash'),
+  
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+}, (table) => ({
+  hskLevelIdx: index('releases_hsk_level_idx').on(table.hskLevel),
+  versionIdx: index('releases_version_idx').on(table.version),
+  createdAtIdx: index('releases_created_at_idx').on(table.createdAt),
 }));
 
 // --- RATE LIMITS ---

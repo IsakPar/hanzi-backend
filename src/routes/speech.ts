@@ -61,6 +61,7 @@ const generateSpeechSchema = z.object({
   text: z.string().min(1).max(500),
   voice: z.string().default(DEFAULT_VOICE),
   speed: z.number().min(0.5).max(2.0).default(1.0),
+  pinyin: z.string().optional(), // Optional pinyin for better single-char pronunciation
 });
 
 const saveSpeechSchema = z.object({
@@ -104,6 +105,53 @@ const generateBatchSchema = z.object({
 // ═══════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Enhance single/double Chinese characters with pinyin for better TTS pronunciation.
+ * Short words are ambiguous - TTS often guesses wrong tone/pronunciation.
+ * 
+ * Strategy for 1-2 character words:
+ * "谢" + "xiè" → "谢。...... 谢，xiè"
+ * 
+ * This gives:
+ * 1. Clear isolated word at the start (for trimming)
+ * 2. Long pause (easy to find trim point)
+ * 3. Word with pinyin for context/verification
+ * 
+ * The "......" creates ~1.5s pause in ElevenLabs.
+ * Frontend will auto-suggest trimming at the pause.
+ * 
+ * Returns: { text: string, needsTrim: boolean }
+ */
+function enhanceTextForTTS(text: string, pinyin?: string): { text: string; needsTrim: boolean } {
+  // Check if text is 1-2 Chinese characters
+  const shortWordRegex = /^[\u4e00-\u9fff]{1,2}$/;
+  
+  if (!shortWordRegex.test(text)) {
+    // 3+ characters, return as-is (no enhancement needed)
+    return { text, needsTrim: false };
+  }
+  
+  // Short word (1-2 chars) with pinyin - use double-take format
+  if (pinyin && pinyin.trim()) {
+    // Format: "谢。...... 谢，xiè"
+    // - First "谢。" is clear isolated word with sentence-ending tone
+    // - "......" creates ~1.5 second pause
+    // - "谢，xiè" gives pronunciation context
+    // Frontend will trim to keep only the first word
+    return { 
+      text: `${text}。...... ${text}，${pinyin.trim()}`, 
+      needsTrim: true 
+    };
+  }
+  
+  // No pinyin - still use double-take but without pinyin
+  // Format: "谢。...... 谢"
+  return { 
+    text: `${text}。...... ${text}`, 
+    needsTrim: true 
+  };
+}
 
 function getApiKey(env: AppEnv['Bindings']): string | null {
   return (env as Record<string, unknown>).ELEVENLABS_API_KEY as string || null;
@@ -244,7 +292,7 @@ app.get('/status', (c) => {
  * Generate speech from text (returns base64 for preview, NOT saved)
  */
 app.post('/generate', zValidator('json', generateSpeechSchema), async (c) => {
-  const { text, voice, speed } = c.req.valid('json');
+  const { text, voice, speed, pinyin } = c.req.valid('json');
   const apiKey = getApiKey(c.env);
 
   if (!apiKey) {
@@ -255,14 +303,26 @@ app.post('/generate', zValidator('json', generateSpeechSchema), async (c) => {
   }
 
   const voiceId = getVoiceId(voice);
-  const characterCount = text.length;
+  
+  // Enhance single characters with pinyin for better pronunciation
+  const enhancement = enhanceTextForTTS(text, pinyin);
+  const characterCount = text.length; // Count original, not enhanced
 
   logWithContext('info', 'speech.generate_start', {
     requestId: c.get('requestId'),
-    meta: { textLength: characterCount, voice, speed },
+    meta: { 
+      originalText: text, 
+      enhancedText: enhancement.needsTrim ? enhancement.text : undefined,
+      needsTrim: enhancement.needsTrim,
+      pinyin: pinyin || undefined,
+      textLength: characterCount, 
+      voiceRequested: voice, 
+      voiceIdUsed: voiceId,
+      speed,
+    },
   });
 
-  const { audioBuffer, error, statusCode } = await callElevenLabsAPI(apiKey, voiceId, text, speed);
+  const { audioBuffer, error, statusCode } = await callElevenLabsAPI(apiKey, voiceId, enhancement.text, speed);
 
   if (error) {
     logWithContext('error', 'speech.generate_failed', {
@@ -283,7 +343,9 @@ app.post('/generate', zValidator('json', generateSpeechSchema), async (c) => {
     meta: { 
       textLength: characterCount, 
       audioBytes: audioBuffer.byteLength,
+      audioBase64First50: audioBase64.substring(0, 50),
       durationMs,
+      voiceIdUsed: voiceId,
     },
   });
 
@@ -317,6 +379,7 @@ app.post('/generate', zValidator('json', generateSpeechSchema), async (c) => {
     format: 'audio/mpeg',
     charactersUsed: characterCount,
     estimatedCost: estimateCost(characterCount),
+    needsTrim: enhancement.needsTrim, // Frontend should show trim controls
   });
 });
 

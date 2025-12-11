@@ -88,10 +88,10 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler<AppEnv> 
 
 /**
  * Auth endpoints - strictest (brute force protection)
- * 10 requests per 5 minutes
+ * 30 requests per 5 minutes (increased for dev)
  */
 export const authRateLimit = rateLimit({
-  max: 10,
+  max: 30,
   windowSeconds: 300,
   keyPrefix: 'auth',
 });

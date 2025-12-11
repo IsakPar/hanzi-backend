@@ -41,6 +41,11 @@ export type AppBindings = {
   ELEVENLABS_API_KEY?: string;
   // Rate Limiting
   RATE_LIMIT_KV?: KVNamespace;
+  // AI Studio (Chinese LLM lesson generation)
+  AI_STUDIO_DB?: D1Database;
+  AI_STUDIO_BUCKET?: R2Bucket;
+  CURRICULUM_INDEX?: VectorizeIndex;
+  // OPENROUTER_API_KEY already exists for other AI features
 };
 
 export type AppVariables = {

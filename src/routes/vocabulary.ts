@@ -8,7 +8,7 @@ import { eq, like, and, or, desc, asc, sql, inArray } from 'drizzle-orm';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
 import { apiRateLimit } from '../middleware/rate-limit';
-import { generateExampleSentence as generateExampleSentenceAI } from '../services/vocab-enhancer';
+import { generateExampleSentence as generateExampleSentenceAI, translateWord as translateWordAI } from '../services/vocab-enhancer';
 import { AIUsageLogger } from '../services/ai-usage-logger';
 
 // ═══════════════════════════════════════════════════════════
@@ -44,6 +44,70 @@ function escapeLikePattern(value: string): string {
     .replace(/_/g, '\\_');   // Escape underscore
 }
 
+/**
+ * Strip tone marks from pinyin for tone-agnostic search
+ * Converts: nǐ hǎo → ni hao, māmā → mama, xuéxí → xuexi
+ */
+function stripToneMarks(text: string): string {
+  const toneMap: Record<string, string> = {
+    // a tones
+    'ā': 'a', 'á': 'a', 'ǎ': 'a', 'à': 'a',
+    // e tones
+    'ē': 'e', 'é': 'e', 'ě': 'e', 'è': 'e',
+    // i tones
+    'ī': 'i', 'í': 'i', 'ǐ': 'i', 'ì': 'i',
+    // o tones
+    'ō': 'o', 'ó': 'o', 'ǒ': 'o', 'ò': 'o',
+    // u tones
+    'ū': 'u', 'ú': 'u', 'ǔ': 'u', 'ù': 'u',
+    // ü tones (often written as v in simplified pinyin)
+    'ǖ': 'v', 'ǘ': 'v', 'ǚ': 'v', 'ǜ': 'v', 'ü': 'v',
+  };
+  
+  return text
+    .split('')
+    .map(char => toneMap[char] || char)
+    .join('')
+    .toLowerCase();
+}
+
+/**
+ * Check if a string is likely pinyin (ASCII letters, spaces, and common punctuation only)
+ */
+function isProbablyPinyin(text: string): boolean {
+  // If it contains Chinese characters, it's not pinyin
+  if (/[\u4e00-\u9fff]/.test(text)) return false;
+  // If it's mostly ASCII letters and spaces, it's probably pinyin
+  return /^[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s]+$/.test(text);
+}
+
+/**
+ * Build SQL expression to normalize pinyin in SQLite
+ * This creates a chain of REPLACE calls to strip tone marks
+ */
+function buildPinyinNormalizeSQL(column: string): string {
+  const replacements = [
+    // a tones
+    ['ā', 'a'], ['á', 'a'], ['ǎ', 'a'], ['à', 'a'],
+    // e tones
+    ['ē', 'e'], ['é', 'e'], ['ě', 'e'], ['è', 'e'],
+    // i tones
+    ['ī', 'i'], ['í', 'i'], ['ǐ', 'i'], ['ì', 'i'],
+    // o tones
+    ['ō', 'o'], ['ó', 'o'], ['ǒ', 'o'], ['ò', 'o'],
+    // u tones
+    ['ū', 'u'], ['ú', 'u'], ['ǔ', 'u'], ['ù', 'u'],
+    // ü tones
+    ['ǖ', 'v'], ['ǘ', 'v'], ['ǚ', 'v'], ['ǜ', 'v'], ['ü', 'v'],
+  ];
+  
+  let expr = `LOWER(${column})`;
+  for (const [from, to] of replacements) {
+    expr = `REPLACE(${expr}, '${from}', '${to}')`;
+  }
+  return expr;
+}
+
 const app = new Hono<AppEnv>();
 
 // Apply rate limiting
@@ -56,9 +120,15 @@ app.use('/admin/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
 const searchSchema = z.object({
   query: z.string().optional(),
-  hsk_level: z.coerce.number().int().min(1).max(9).optional(),
+  hsk_level: z.coerce.number().int().min(1).max(10).optional(),
   category: z.string().optional(),
   lesson_id: z.string().optional(), // Filter by lesson's targetVocabulary
+  // Audio/completeness filters (server-side for proper pagination)
+  has_audio: z.enum(['true', 'false']).optional(),
+  has_example: z.enum(['true', 'false']).optional(),
+  incomplete: z.enum(['true', 'false']).optional(),
+  missing_secondary: z.enum(['true', 'false']).optional(),
+  in_lesson: z.enum(['true', 'false']).optional(), // Filter by whether word is used in any lesson
   limit: z.coerce.number().int().min(1).max(1000).optional().default(50),  // Increased for bulk operations
   offset: z.coerce.number().int().min(0).optional().default(0),
   sort: z.enum(['hanzi', 'pinyin', 'hsk_level', 'category']).optional().default('hanzi'),
@@ -70,7 +140,7 @@ const createVocabSchema = z.object({
   pinyin: z.string().min(1),
   english: z.string().min(1),
   category: z.string().min(1),
-  hskLevel: z.number().int().min(1).max(9),
+  hskLevel: z.number().int().min(1).max(10),
   tags: z.array(z.string()).optional(),
   // Pedagogic metadata
   pos: z.string().optional(),
@@ -103,6 +173,25 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
   try {
     const conditions = [];
 
+    // Build vocab → lesson count map for in_lesson filter and enrichment
+    // Load all lessons' targetVocabulary arrays
+    const allLessons = await db
+      .select({
+        id: lessons.id,
+        targetVocabulary: lessons.targetVocabulary,
+      })
+      .from(lessons)
+      .all();
+
+    // Build map: vocabId → count of lessons it appears in
+    const vocabLessonCount = new Map<string, number>();
+    for (const lesson of allLessons) {
+      const vocabIds = (lesson.targetVocabulary as string[]) || [];
+      for (const vocabId of vocabIds) {
+        vocabLessonCount.set(vocabId, (vocabLessonCount.get(vocabId) || 0) + 1);
+      }
+    }
+
     // Lesson filter - get vocabulary IDs from lesson's targetVocabulary
     let lessonVocabIds: string[] | null = null;
     if (filters.lesson_id) {
@@ -131,13 +220,33 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
     if (filters.query) {
       const escapedQuery = escapeLikePattern(filters.query);
       const searchTerm = `%${escapedQuery}%`;
-      conditions.push(
-        or(
-          like(vocabulary.hanzi, searchTerm),
-          like(vocabulary.pinyin, searchTerm),
-          like(vocabulary.english, searchTerm)
-        )
-      );
+      
+      // Check if query might be pinyin (for tone-agnostic search)
+      if (isProbablyPinyin(filters.query)) {
+        // Normalize the query (strip tones, lowercase)
+        const normalizedQuery = stripToneMarks(escapedQuery);
+        const normalizedSearchTerm = `%${normalizedQuery}%`;
+        
+        // Build SQL expression for normalized pinyin comparison
+        const pinyinNormalizeExpr = buildPinyinNormalizeSQL('pinyin');
+        
+        // Search hanzi and normalized pinyin ONLY (skip English to avoid noise like "work" matching "wo")
+        conditions.push(
+          or(
+            like(vocabulary.hanzi, searchTerm),
+            sql`${sql.raw(pinyinNormalizeExpr)} LIKE ${normalizedSearchTerm}`
+          )
+        );
+      } else {
+        // Regular search (for hanzi or mixed queries)
+        conditions.push(
+          or(
+            like(vocabulary.hanzi, searchTerm),
+            like(vocabulary.pinyin, searchTerm),
+            sql`LOWER(english) LIKE ${`%${escapedQuery.toLowerCase()}%`}`
+          )
+        );
+      }
     }
 
     // HSK level filter
@@ -148,6 +257,48 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
     // Category filter
     if (filters.category) {
       conditions.push(eq(vocabulary.category, filters.category));
+    }
+
+    // Audio filter (server-side for proper pagination)
+    if (filters.has_audio === 'true') {
+      conditions.push(sql`word_audio_r2_key IS NOT NULL AND word_audio_r2_key != ''`);
+    } else if (filters.has_audio === 'false') {
+      conditions.push(sql`(word_audio_r2_key IS NULL OR word_audio_r2_key = '')`);
+    }
+
+    // Example filter
+    if (filters.has_example === 'true') {
+      conditions.push(sql`example_chinese IS NOT NULL AND example_chinese != ''`);
+    } else if (filters.has_example === 'false') {
+      conditions.push(sql`(example_chinese IS NULL OR example_chinese = '')`);
+    }
+
+    // Incomplete filter (missing audio OR missing example)
+    if (filters.incomplete === 'true') {
+      conditions.push(sql`(word_audio_r2_key IS NULL OR word_audio_r2_key = '' OR example_chinese IS NULL OR example_chinese = '')`);
+    }
+
+    // Missing secondary categories filter
+    if (filters.missing_secondary === 'true') {
+      conditions.push(sql`(secondary_categories IS NULL OR secondary_categories = '[]' OR secondary_categories = '')`);
+    }
+
+    // In lesson filter - only include vocab that is/isn't used in any lesson
+    // We need to get all vocab IDs that are in lessons
+    const vocabIdsInLessons = Array.from(vocabLessonCount.keys());
+    if (filters.in_lesson === 'true') {
+      if (vocabIdsInLessons.length > 0) {
+        conditions.push(inArray(vocabulary.id, vocabIdsInLessons));
+      } else {
+        // No vocab is in any lesson, return empty
+        return c.json({ results: [], total: 0, limit: filters.limit, offset: filters.offset });
+      }
+    } else if (filters.in_lesson === 'false') {
+      if (vocabIdsInLessons.length > 0) {
+        // NOT IN is tricky with drizzle, use raw SQL
+        conditions.push(sql`id NOT IN (${sql.join(vocabIdsInLessons.map(id => sql`${id}`), sql`, `)})`);
+      }
+      // If no vocab is in lessons, all vocab qualifies - no condition needed
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -179,8 +330,15 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
       .offset(filters.offset)
       .all();
 
+    // Add row numbers and lesson count based on pagination offset
+    const resultsWithRowNum = results.map((item, index) => ({
+      ...item,
+      rowNum: filters.offset + index + 1,
+      inLessonCount: vocabLessonCount.get(item.id) || 0,
+    }));
+
     return c.json({
-      results,
+      results: resultsWithRowNum,
       total: countResult?.count ?? 0,
       limit: filters.limit,
       offset: filters.offset,
@@ -192,6 +350,114 @@ app.get('/', zValidator('query', searchSchema), async (c) => {
     });
     // Don't expose internal error details to client
     return c.json({ error: 'Search failed' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// SIMPLE WORD SUGGESTIONS (NO AI - PURE DB)
+// ═══════════════════════════════════════════════════════════
+
+const suggestSchema = z.object({
+  hskLevel: z.coerce.number().int().min(1).max(10),
+  category: z.string().optional(),
+  pos: z.string().optional(),
+  exclude: z.string().optional(), // Comma-separated list of hanzi to exclude
+  count: z.coerce.number().int().min(1).max(20).optional().default(5),
+});
+
+/**
+ * GET /vocabulary/suggest - Get random vocabulary suggestions by HSK level + metadata
+ * NO AI - just simple database queries!
+ * 
+ * Priority:
+ * 1. Same HSK + Same category + Same POS → score 3
+ * 2. Same HSK + Same category → score 2  
+ * 3. Same HSK + Same POS → score 1
+ * 4. Same HSK only → score 0
+ */
+app.get('/suggest', zValidator('query', suggestSchema), async (c) => {
+  const { hskLevel, category, pos, exclude, count } = c.req.valid('query');
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+
+  // Parse excluded words (comma-separated)
+  const excludeList = exclude ? exclude.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  logWithContext('info', 'vocabulary.suggest', {
+    requestId,
+    meta: { hskLevel, category, pos, excludeCount: excludeList.length, count },
+  });
+
+  try {
+    // Build base condition: must match HSK level
+    const conditions = [eq(vocabulary.hskLevel, hskLevel)];
+
+    // Exclude specific hanzi if provided
+    if (excludeList.length > 0) {
+      conditions.push(sql`${vocabulary.hanzi} NOT IN (${sql.join(excludeList.map(h => sql`${h}`), sql`, `)})`);
+    }
+
+    const whereClause = and(...conditions);
+
+    // Get all matching words with their metadata
+    const allWords = await db
+      .select({
+        id: vocabulary.id,
+        hanzi: vocabulary.hanzi,
+        pinyin: vocabulary.pinyin,
+        english: vocabulary.english,
+        category: vocabulary.category,
+        pos: vocabulary.pos,
+        tonePattern: vocabulary.tonePattern,
+      })
+      .from(vocabulary)
+      .where(whereClause)
+      .limit(200); // Get a pool to rank from
+
+    if (allWords.length === 0) {
+      return c.json({
+        suggestions: [],
+        message: `No words found for HSK ${hskLevel}`,
+      });
+    }
+
+    // Score each word based on category/pos match
+    const scoredWords = allWords.map(word => {
+      let score = 0;
+      if (category && word.category === category) score += 2;
+      if (pos && word.pos === pos) score += 1;
+      return { ...word, score };
+    });
+
+    // Sort by score (desc), then shuffle within same score for variety
+    scoredWords.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return Math.random() - 0.5; // Random within same score
+    });
+
+    // Take top N
+    const suggestions = scoredWords.slice(0, count).map(w => ({
+      id: w.id,
+      hanzi: w.hanzi,
+      pinyin: w.pinyin,
+      english: w.english,
+      category: w.category,
+      pos: w.pos,
+    }));
+
+    return c.json({
+      suggestions,
+      hskLevel,
+      requestedCategory: category || null,
+      requestedPos: pos || null,
+      totalPool: allWords.length,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.suggest_failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Failed to get suggestions' }, 500);
   }
 });
 
@@ -796,6 +1062,17 @@ app.post('/admin/:id/save-word-audio', zValidator('json', saveAudioSchema), asyn
   const db = drizzle(c.env.DB);
   const cdnBaseUrl = getCdnBaseUrl(c.env);
 
+  // DEBUG: Log received audio info
+  logWithContext('info', 'vocabulary.save_word_audio_debug', {
+    requestId: c.get('requestId'),
+    meta: { 
+      id, 
+      audioBase64Length: audioBase64.length,
+      audioBase64First50: audioBase64.substring(0, 50),
+      durationMs,
+    },
+  });
+
   try {
     // Decode base64 to buffer
     const binaryString = atob(audioBase64);
@@ -805,25 +1082,50 @@ app.post('/admin/:id/save-word-audio', zValidator('json', saveAudioSchema), asyn
     }
     const audioBuffer = bytes.buffer;
 
-    // Upload to R2
-    const r2Key = `audio/vocabulary/words/${id}.mp3`;
-    await c.env.CONTENT_BUCKET.put(r2Key, audioBuffer, {
-      httpMetadata: { contentType: 'audio/mpeg' },
+    // DEBUG: Log buffer info
+    logWithContext('info', 'vocabulary.save_word_audio_buffer', {
+      requestId: c.get('requestId'),
+      meta: { 
+        id, 
+        bufferByteLength: audioBuffer.byteLength,
+      },
     });
 
-    // Update vocabulary entry
+    // Upload to R2
+    // Note: Audio can be MP3 (original from ElevenLabs) or WAV (if trim/speed processed)
+    // We detect format from the magic bytes and save with correct extension
+    const isWav = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46; // "RIFF"
+    const isMp3 = bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0; // MP3 sync
+    const isMp3Id3 = bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33; // "ID3" tag
+    
+    const ext = isWav ? 'wav' : 'mp3';
+    const contentType = isWav ? 'audio/wav' : 'audio/mpeg';
+    
+    console.log('[vocabulary] Audio format detected:', { isWav, isMp3, isMp3Id3, ext });
+    
+    const r2Key = `audio/vocabulary/words/${id}.${ext}`;
+    await c.env.CONTENT_BUCKET.put(r2Key, audioBuffer, {
+      httpMetadata: { contentType },
+    });
+
+    // Update vocabulary entry with timestamp for cache busting
+    const audioUpdatedAt = Date.now();
     await db
       .update(vocabulary)
-      .set({ wordAudioR2Key: r2Key })
+      .set({ 
+        wordAudioR2Key: r2Key,
+        wordAudioUpdatedAt: audioUpdatedAt,
+      })
       .where(eq(vocabulary.id, id));
 
     logWithContext('info', 'vocabulary.word_audio_saved', {
       requestId: c.get('requestId'),
-      meta: { id, r2Key },
+      meta: { id, r2Key, audioUpdatedAt },
     });
 
     return c.json({ 
-      success: true, 
+      success: true,
+      audioUpdatedAt, // Return for frontend to use in cache busting 
       r2Key,
       audioUrl: `${cdnBaseUrl}/${r2Key}`,
     });
@@ -855,26 +1157,37 @@ app.post('/admin/:id/save-example-audio', zValidator('json', saveAudioSchema), a
     const audioBuffer = bytes.buffer;
 
     // Upload to R2
-    const r2Key = `audio/vocabulary/examples/${id}.mp3`;
+    // Note: Audio can be MP3 (original from ElevenLabs) or WAV (if trim/speed processed)
+    const isWav = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46; // "RIFF"
+    
+    const ext = isWav ? 'wav' : 'mp3';
+    const contentType = isWav ? 'audio/wav' : 'audio/mpeg';
+    
+    const r2Key = `audio/vocabulary/examples/${id}.${ext}`;
     await c.env.CONTENT_BUCKET.put(r2Key, audioBuffer, {
-      httpMetadata: { contentType: 'audio/mpeg' },
+      httpMetadata: { contentType },
     });
 
-    // Update vocabulary entry
+    // Update vocabulary entry with timestamp for cache busting
+    const audioUpdatedAt = Date.now();
     await db
       .update(vocabulary)
-      .set({ exampleAudioR2Key: r2Key })
+      .set({ 
+        exampleAudioR2Key: r2Key,
+        exampleAudioUpdatedAt: audioUpdatedAt,
+      })
       .where(eq(vocabulary.id, id));
 
     logWithContext('info', 'vocabulary.example_audio_saved', {
       requestId: c.get('requestId'),
-      meta: { id, r2Key },
+      meta: { id, r2Key, audioUpdatedAt },
     });
 
     return c.json({ 
       success: true, 
       r2Key,
       audioUrl: `${cdnBaseUrl}/${r2Key}`,
+      audioUpdatedAt, // Return for frontend to use in cache busting
     });
   } catch (err) {
     logWithContext('error', 'vocabulary.save_example_audio_failed', {
@@ -1166,6 +1479,76 @@ app.post('/admin/:id/generate-example', zValidator('json', generateExampleSchema
 });
 
 // ═══════════════════════════════════════════════════════════
+// AI TRANSLATION (suggest English + Pinyin)
+// ═══════════════════════════════════════════════════════════
+
+const translateSchema = z.object({
+  hanzi: z.string().min(1).max(50),
+});
+
+/**
+ * POST /vocabulary/admin/translate - Translate Chinese to English + Pinyin using AI
+ * This endpoint doesn't require a saved vocabulary entry - works with just hanzi text
+ */
+app.post('/admin/translate', zValidator('json', translateSchema), async (c) => {
+  const { hanzi } = c.req.valid('json');
+  const requestId = c.get('requestId');
+  const config = c.get('config');
+
+  try {
+    // Get OpenRouter API key - try both sources
+    const apiKey = config?.secrets?.openRouterApiKey || c.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      logWithContext('error', 'vocabulary.translate.no_api_key', { 
+        requestId,
+        meta: { 
+          hasConfig: !!config,
+          hasSecrets: !!config?.secrets,
+          envKeyExists: !!c.env.OPENROUTER_API_KEY,
+        }
+      });
+      return c.json({ error: 'AI service not configured - OPENROUTER_API_KEY not set' }, 500);
+    }
+
+    logWithContext('info', 'vocabulary.translate.starting', {
+      requestId,
+      meta: { hanzi, keyLength: apiKey.length },
+    });
+
+    // Translate using AI
+    const result = await translateWordAI(
+      hanzi,
+      apiKey,
+      requestId,
+      c.env.DB
+    );
+
+    logWithContext('info', 'vocabulary.translate.success', {
+      requestId,
+      meta: { hanzi, english: result.english, tokensUsed: result.tokensUsed },
+    });
+
+    return c.json({
+      success: true,
+      english: result.english,
+      pinyin: result.pinyin,
+      tokensUsed: result.tokensUsed,
+    });
+  } catch (err) {
+    const errorMessage = (err as Error).message;
+    logWithContext('error', 'vocabulary.translate.failed', {
+      requestId,
+      meta: { hanzi, error: errorMessage, stack: (err as Error).stack?.substring(0, 500) },
+    });
+    return c.json({ 
+      error: 'Failed to translate', 
+      details: errorMessage,
+      hint: errorMessage.includes('API') ? 'Check OPENROUTER_API_KEY configuration' : undefined
+    }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // VOCABULARY HEALTH CHECK (for lesson editor)
 // ═══════════════════════════════════════════════════════════
 
@@ -1272,6 +1655,234 @@ app.post('/admin/health-check', zValidator('json', healthCheckSchema), async (c)
       meta: { error: (err as Error).message },
     });
     return c.json({ error: 'Health check failed' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// VOCAB MIGRATION TOOLS (HSK Level 1 → 10 Migration)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * GET /v1/vocabulary/admin/migration/compare
+ * Compare HSK level 1 (old) with level 10 (new v3.0) vocabulary
+ * Finds matches by hanzi and shows transfer candidates
+ */
+app.get('/admin/migration/compare', async (c) => {
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+
+  try {
+    // Get old vocab (level 1)
+    const oldVocab = await db
+      .select()
+      .from(vocabulary)
+      .where(eq(vocabulary.hskLevel, 1));
+
+    // Get new vocab (level 10)
+    const newVocab = await db
+      .select()
+      .from(vocabulary)
+      .where(eq(vocabulary.hskLevel, 10));
+
+    // Create lookup map for old vocab by hanzi
+    const oldByHanzi = new Map(oldVocab.map(v => [v.hanzi, v]));
+
+    // Compare
+    const matches: Array<{
+      newId: string;
+      oldId: string | null;
+      hanzi: string;
+      pinyin: string;
+      english: string;
+      hasMatch: boolean;
+      oldHasAudio: boolean;
+      oldHasExample: boolean;
+      oldHasTags: boolean;
+      canTransfer: boolean;
+    }> = [];
+
+    for (const newWord of newVocab) {
+      const oldWord = oldByHanzi.get(newWord.hanzi);
+      
+      matches.push({
+        newId: newWord.id,
+        oldId: oldWord?.id || null,
+        hanzi: newWord.hanzi,
+        pinyin: newWord.pinyin,
+        english: newWord.english,
+        hasMatch: !!oldWord,
+        oldHasAudio: !!oldWord?.wordAudioR2Key,
+        oldHasExample: !!oldWord?.exampleChinese,
+        oldHasTags: !!oldWord?.pos || !!oldWord?.tonePattern,
+        canTransfer: !!oldWord && (!!oldWord.wordAudioR2Key || !!oldWord.exampleChinese),
+      });
+    }
+
+    // Find words in old that don't exist in new
+    const newHanziSet = new Set(newVocab.map(v => v.hanzi));
+    const onlyInOld = oldVocab.filter(v => !newHanziSet.has(v.hanzi)).map(v => ({
+      id: v.id,
+      hanzi: v.hanzi,
+      pinyin: v.pinyin,
+      english: v.english,
+      hasAudio: !!v.wordAudioR2Key,
+      hasExample: !!v.exampleChinese,
+    }));
+
+    const summary = {
+      oldCount: oldVocab.length,
+      newCount: newVocab.length,
+      matchedCount: matches.filter(m => m.hasMatch).length,
+      transferableCount: matches.filter(m => m.canTransfer).length,
+      onlyInOldCount: onlyInOld.length,
+      onlyInNewCount: matches.filter(m => !m.hasMatch).length,
+    };
+
+    logWithContext('info', 'vocabulary.migration.compare', {
+      requestId,
+      meta: summary,
+    });
+
+    return c.json({
+      summary,
+      matches,
+      onlyInOld,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.migration.compare.failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Migration compare failed' }, 500);
+  }
+});
+
+/**
+ * POST /v1/vocabulary/admin/migration/transfer
+ * Transfer audio, examples, and tags from matched old vocab to new vocab
+ */
+app.post('/admin/migration/transfer', async (c) => {
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+  const { pairs } = await c.req.json<{ pairs: Array<{ oldId: string; newId: string }> }>();
+
+  if (!pairs || !Array.isArray(pairs) || pairs.length === 0) {
+    return c.json({ error: 'pairs array is required' }, 400);
+  }
+
+  try {
+    let transferred = 0;
+
+    for (const { oldId, newId } of pairs) {
+      // Get old vocab entry
+      const [oldEntry] = await db
+        .select()
+        .from(vocabulary)
+        .where(eq(vocabulary.id, oldId))
+        .limit(1);
+
+      if (!oldEntry) continue;
+
+      // Transfer fields to new entry
+      const updateData: Partial<typeof vocabulary.$inferInsert> = {};
+      
+      if (oldEntry.wordAudioR2Key) updateData.wordAudioR2Key = oldEntry.wordAudioR2Key;
+      if (oldEntry.exampleChinese) updateData.exampleChinese = oldEntry.exampleChinese;
+      if (oldEntry.examplePinyin) updateData.examplePinyin = oldEntry.examplePinyin;
+      if (oldEntry.exampleEnglish) updateData.exampleEnglish = oldEntry.exampleEnglish;
+      if (oldEntry.exampleAudioR2Key) updateData.exampleAudioR2Key = oldEntry.exampleAudioR2Key;
+      if (oldEntry.tags) updateData.tags = oldEntry.tags;
+      if (oldEntry.secondaryCategories) updateData.secondaryCategories = oldEntry.secondaryCategories;
+
+      if (Object.keys(updateData).length > 0) {
+        await db
+          .update(vocabulary)
+          .set(updateData)
+          .where(eq(vocabulary.id, newId));
+        transferred++;
+      }
+    }
+
+    logWithContext('info', 'vocabulary.migration.transfer', {
+      requestId,
+      meta: { requested: pairs.length, transferred },
+    });
+
+    return c.json({
+      success: true,
+      transferred,
+      requested: pairs.length,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.migration.transfer.failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Transfer failed' }, 500);
+  }
+});
+
+/**
+ * POST /v1/vocabulary/admin/migration/finalize
+ * Finalize migration: swap level 10 → 1, optionally delete old level 1
+ */
+app.post('/admin/migration/finalize', async (c) => {
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+  const { deleteOld } = await c.req.json<{ deleteOld?: boolean }>();
+
+  try {
+    // Get counts before
+    const [oldVocab] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(eq(vocabulary.hskLevel, 1));
+    
+    const [newVocab] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(eq(vocabulary.hskLevel, 10));
+
+    if (deleteOld) {
+      // Delete old level 1
+      await db.delete(vocabulary).where(eq(vocabulary.hskLevel, 1));
+      
+      logWithContext('info', 'vocabulary.migration.deleted_old', {
+        requestId,
+        meta: { deleted: oldVocab.count },
+      });
+    }
+
+    // Update level 10 → 1
+    await db
+      .update(vocabulary)
+      .set({ hskLevel: 1 })
+      .where(eq(vocabulary.hskLevel, 10));
+
+    logWithContext('info', 'vocabulary.migration.finalize', {
+      requestId,
+      meta: { 
+        oldCount: oldVocab.count, 
+        newCount: newVocab.count,
+        deletedOld: !!deleteOld,
+      },
+    });
+
+    return c.json({
+      success: true,
+      oldCount: oldVocab.count,
+      newCount: newVocab.count,
+      deletedOld: !!deleteOld,
+      message: deleteOld 
+        ? `Deleted ${oldVocab.count} old words, promoted ${newVocab.count} new words to HSK 1`
+        : `Promoted ${newVocab.count} new words to HSK 1 (old words still exist at level 1)`,
+    });
+  } catch (err) {
+    logWithContext('error', 'vocabulary.migration.finalize.failed', {
+      requestId,
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Finalize failed' }, 500);
   }
 });
 

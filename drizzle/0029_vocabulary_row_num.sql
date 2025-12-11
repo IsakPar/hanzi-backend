@@ -11,3 +11,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS vocab_row_num_idx ON vocabulary(row_num);
 
 
 
+

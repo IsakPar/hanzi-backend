@@ -5,16 +5,20 @@
  * before pushing to all users.
  * 
  * Flow: draft -> staging -> live
+ * 
+ * Also handles Release Manager for shipping content to mobile app.
  */
 
 import { Hono } from 'hono';
-import { eq, or, inArray } from 'drizzle-orm';
+import { eq, or, inArray, and, desc, asc, ne } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
-import { lessons, stories, testDevices } from '../schema';
+import { lessons, stories, testDevices, releases, vocabulary, lessonBlocks } from '../schema';
 import { nanoid } from 'nanoid';
 import { adminRateLimit } from '../middleware/rate-limit';
+import { logWithContext } from '../utils/logger';
+import { VocabExtractor } from '../services/vocab-extractor';
 
 const app = new Hono<AppEnv>();
 
@@ -340,6 +344,655 @@ app.get('/overview', async (c) => {
       live: lessonCounts.live + storyCounts.live,
     },
   });
+});
+
+// ═══════════════════════════════════════════════════════════
+// RELEASE MANAGER
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Helper: Generate content hash for change detection
+ */
+async function generateContentHash(content: unknown): Promise<string> {
+  const json = JSON.stringify(content);
+  const encoder = new TextEncoder();
+  const data = encoder.encode(json);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+}
+
+/**
+ * GET /v1/control-center/preview-release/:hskLevel
+ * Preview what would change if we shipped content for an HSK level
+ * Compares draft/staging content against what's currently live
+ */
+app.get('/preview-release/:hskLevel', async (c) => {
+  const db = drizzle(c.env.DB);
+  const hskLevel = parseInt(c.req.param('hskLevel'));
+
+  if (isNaN(hskLevel) || hskLevel < 1 || hskLevel > 9) {
+    return c.json({ error: 'Invalid HSK level. Must be 1-9.' }, 400);
+  }
+
+  logWithContext('info', 'release.preview_start', {
+    requestId: c.get('requestId'),
+    meta: { hskLevel },
+  });
+
+  // Auto-sync vocabulary for all lessons in this HSK level
+  // This ensures targetVocabulary is populated from lesson block content
+  const vocabExtractor = new VocabExtractor(c.env.DB, c.get('requestId'));
+  try {
+    const syncResult = await vocabExtractor.syncAllLessons(hskLevel);
+    logWithContext('info', 'release.vocab_sync_complete', {
+      requestId: c.get('requestId'),
+      meta: { 
+        hskLevel, 
+        lessonsSynced: syncResult.synced, 
+        totalVocab: syncResult.totalVocab,
+        errors: syncResult.errors.length,
+      },
+    });
+  } catch (syncError) {
+    logWithContext('warn', 'release.vocab_sync_failed', {
+      requestId: c.get('requestId'),
+      meta: { hskLevel, error: (syncError as Error).message },
+    });
+    // Continue even if sync fails - use existing targetVocabulary
+  }
+
+  // Get all lessons for this HSK level (after sync)
+  const allLessons = await db
+    .select({
+      id: lessons.id,
+      title: lessons.title,
+      lessonNumber: lessons.lessonNumber,
+      contentStatus: lessons.contentStatus,
+      contentHash: lessons.contentHash,
+      contentVersion: lessons.contentVersion,
+      isPublished: lessons.isPublished,
+      updatedAt: lessons.updatedAt,
+      targetVocabulary: lessons.targetVocabulary,
+    })
+    .from(lessons)
+    .where(eq(lessons.hskLevel, hskLevel))
+    .orderBy(asc(lessons.lessonNumber));
+
+  // Categorize lessons
+  const liveLessons = allLessons.filter(l => l.contentStatus === 'live' && l.isPublished);
+  const draftLessons = allLessons.filter(l => l.contentStatus === 'draft' || !l.contentStatus);
+  const stagingLessons = allLessons.filter(l => l.contentStatus === 'staging');
+
+  // Get ALL vocabulary for this HSK level with full details for selection
+  const vocabList = await db
+    .select({
+      id: vocabulary.id,
+      hanzi: vocabulary.hanzi,
+      pinyin: vocabulary.pinyin,
+      english: vocabulary.english,
+      category: vocabulary.category,
+      wordAudioR2Key: vocabulary.wordAudioR2Key,
+      exampleChinese: vocabulary.exampleChinese,
+    })
+    .from(vocabulary)
+    .where(eq(vocabulary.hskLevel, hskLevel))
+    .orderBy(asc(vocabulary.hanzi));
+
+  // Collect all vocab IDs used in lessons (from targetVocabulary)
+  const vocabUsedInLessons = new Set<string>();
+  for (const lesson of allLessons) {
+    const targetVocab = lesson.targetVocabulary as string[] || [];
+    targetVocab.forEach(id => vocabUsedInLessons.add(id));
+  }
+
+  // Get the latest release for this HSK level
+  const latestRelease = await db
+    .select()
+    .from(releases)
+    .where(eq(releases.hskLevel, hskLevel))
+    .orderBy(desc(releases.createdAt))
+    .limit(1);
+
+  const previousRelease = latestRelease[0] || null;
+  const previousLessonIds = (previousRelease?.lessonIds as string[]) || [];
+
+  // Calculate changes
+  const pendingLessons = [...draftLessons, ...stagingLessons];
+  
+  // Determine what's new, updated, or would be removed
+  const newLessons: typeof allLessons = [];
+  const updatedLessons: typeof allLessons = [];
+  const unchangedLessons: typeof allLessons = [];
+
+  for (const lesson of pendingLessons) {
+    const wasLive = previousLessonIds.includes(lesson.id);
+    const currentLive = liveLessons.find(l => l.id === lesson.id);
+    
+    if (!wasLive && !currentLive) {
+      newLessons.push(lesson);
+    } else {
+      // Check if content changed
+      if (currentLive && lesson.contentHash !== currentLive.contentHash) {
+        updatedLessons.push(lesson);
+      } else if (currentLive) {
+        unchangedLessons.push(lesson);
+      } else {
+        newLessons.push(lesson);
+      }
+    }
+  }
+
+  // Lessons that were live but aren't in pending = would be removed if we ship ONLY pending
+  // But typically we want to keep live lessons, so we show them as "staying"
+  const stayingLessons = liveLessons.filter(l => 
+    !pendingLessons.some(p => p.id === l.id)
+  );
+
+  // Calculate vocabulary stats
+  const vocabWithAudio = vocabList.filter(v => v.wordAudioR2Key).length;
+  const vocabInLessons = vocabList.filter(v => vocabUsedInLessons.has(v.id)).length;
+  
+  // Suggest next version (semver bump)
+  const currentVersion = previousRelease?.version || '0.0.0';
+  const [major, minor, patch] = currentVersion.split('.').map(Number);
+  let suggestedVersion: string;
+  
+  if (newLessons.length > 0) {
+    // New lessons = minor bump
+    suggestedVersion = `${major}.${minor + 1}.0`;
+  } else if (updatedLessons.length > 0) {
+    // Updates = patch bump
+    suggestedVersion = `${major}.${minor}.${patch + 1}`;
+  } else {
+    suggestedVersion = currentVersion;
+  }
+
+  // Generate preview content hash
+  const allPendingIds = pendingLessons.map(l => l.id).sort();
+  const previewHash = await generateContentHash({ lessons: allPendingIds, vocab: vocabList.length });
+
+  return c.json({
+    hskLevel,
+    currentLive: {
+      lessons: liveLessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+        contentHash: l.contentHash,
+      })),
+      lessonCount: liveLessons.length,
+      version: previousRelease?.version || 'none',
+      lastUpdated: previousRelease?.createdAt || null,
+    },
+    pendingChanges: {
+      newLessons: newLessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+        status: l.contentStatus,
+        vocabCount: (l.targetVocabulary as string[] || []).length,
+      })),
+      updatedLessons: updatedLessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+        status: l.contentStatus,
+      })),
+      unchangedLessons: unchangedLessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+      })),
+      stayingLessons: stayingLessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+      })),
+    },
+    vocabulary: {
+      total: vocabList.length,
+      withAudio: vocabWithAudio,
+      missingAudio: vocabList.length - vocabWithAudio,
+      inLessons: vocabInLessons,
+      notInLessons: vocabList.length - vocabInLessons,
+      // Full vocab list for selection UI
+      items: vocabList.map(v => ({
+        id: v.id,
+        hanzi: v.hanzi,
+        pinyin: v.pinyin,
+        english: v.english,
+        category: v.category,
+        hasAudio: !!v.wordAudioR2Key,
+        hasExample: !!v.exampleChinese,
+        usedInLesson: vocabUsedInLessons.has(v.id),
+      })),
+    },
+    suggestedVersion,
+    previewHash,
+    hasChanges: newLessons.length > 0 || updatedLessons.length > 0,
+    summary: {
+      totalNew: newLessons.length,
+      totalUpdated: updatedLessons.length,
+      totalStaying: stayingLessons.length + unchangedLessons.length,
+    },
+  });
+});
+
+/**
+ * POST /v1/control-center/ship
+ * Ship selected lessons and vocabulary to mobile (make them live)
+ */
+app.post('/ship', async (c) => {
+  const db = drizzle(c.env.DB);
+  const user = c.get('user');
+  
+  const { 
+    hskLevel, 
+    lessonIds, 
+    version, 
+    releaseNotes,
+    vocabMode,
+    selectedVocabIds,
+  } = await c.req.json<{
+    hskLevel: number;
+    lessonIds: string[];
+    version: string;
+    releaseNotes?: string;
+    vocabMode?: 'all' | 'lessons_only' | 'selected';
+    selectedVocabIds?: string[];
+  }>();
+
+  if (!hskLevel || !lessonIds || lessonIds.length === 0 || !version) {
+    return c.json({ error: 'hskLevel, lessonIds, and version are required' }, 400);
+  }
+
+  logWithContext('info', 'release.ship_start', {
+    requestId: c.get('requestId'),
+    meta: { hskLevel, lessonCount: lessonIds.length, version, vocabMode },
+  });
+
+  // Get current live lessons to calculate changes
+  const currentLive = await db
+    .select({ id: lessons.id })
+    .from(lessons)
+    .where(and(
+      eq(lessons.hskLevel, hskLevel),
+      eq(lessons.isPublished, true)
+    ));
+
+  const currentLiveIds = currentLive.map(l => l.id);
+  
+  // Calculate what's being added vs updated
+  const newIds = lessonIds.filter(id => !currentLiveIds.includes(id));
+  const updatedIds = lessonIds.filter(id => currentLiveIds.includes(id));
+
+  // Calculate vocab to ship based on mode
+  let vocabToShip: string[] = [];
+  const mode = vocabMode || 'lessons_only';
+  
+  if (mode === 'all') {
+    // Ship all HSK vocab
+    const allVocab = await db
+      .select({ id: vocabulary.id })
+      .from(vocabulary)
+      .where(eq(vocabulary.hskLevel, hskLevel));
+    vocabToShip = allVocab.map(v => v.id);
+  } else if (mode === 'selected' && selectedVocabIds) {
+    // Ship only selected vocab
+    vocabToShip = selectedVocabIds;
+  } else {
+    // Default: lessons_only - ship vocab used in shipped lessons
+    const shippedLessons = await db
+      .select({ targetVocabulary: lessons.targetVocabulary })
+      .from(lessons)
+      .where(inArray(lessons.id, lessonIds));
+    
+    const vocabSet = new Set<string>();
+    for (const lesson of shippedLessons) {
+      const targetVocab = lesson.targetVocabulary as string[] || [];
+      targetVocab.forEach(id => vocabSet.add(id));
+    }
+    vocabToShip = Array.from(vocabSet);
+  }
+
+  try {
+    // 1. Update all selected lessons to live
+    await db
+      .update(lessons)
+      .set({
+        contentStatus: 'live',
+        isPublished: true,
+        updatedAt: new Date(),
+      })
+      .where(inArray(lessons.id, lessonIds));
+
+    // 2. Generate content hash (including vocab)
+    const contentHash = await generateContentHash({ 
+      lessonIds: lessonIds.sort(), 
+      vocabIds: vocabToShip.sort(),
+      version 
+    });
+
+    // 3. Create release record
+    const releaseId = nanoid();
+    await db.insert(releases).values({
+      id: releaseId,
+      hskLevel,
+      version,
+      releasedBy: user?.id || null,
+      releaseNotes: releaseNotes || null,
+      lessonsAdded: newIds.length,
+      lessonsUpdated: updatedIds.length,
+      lessonsRemoved: 0, // We don't remove lessons in this flow
+      vocabularyAdded: vocabToShip.length,
+      lessonIds,
+      contentHash,
+    });
+
+    logWithContext('info', 'release.ship_complete', {
+      requestId: c.get('requestId'),
+      meta: { 
+        releaseId, 
+        hskLevel, 
+        version, 
+        lessonsShipped: lessonIds.length,
+        vocabShipped: vocabToShip.length,
+        vocabMode: mode,
+        new: newIds.length,
+        updated: updatedIds.length,
+      },
+    });
+
+    return c.json({
+      success: true,
+      release: {
+        id: releaseId,
+        version,
+        hskLevel,
+        lessonsShipped: lessonIds.length,
+        lessonsAdded: newIds.length,
+        lessonsUpdated: updatedIds.length,
+        vocabShipped: vocabToShip.length,
+        vocabMode: mode,
+      },
+    });
+  } catch (err) {
+    logWithContext('error', 'release.ship_failed', {
+      requestId: c.get('requestId'),
+      meta: { error: (err as Error).message },
+    });
+    return c.json({ error: 'Failed to ship release', details: (err as Error).message }, 500);
+  }
+});
+
+/**
+ * GET /v1/control-center/releases/:hskLevel
+ * Get release history for an HSK level
+ */
+app.get('/releases/:hskLevel', async (c) => {
+  const db = drizzle(c.env.DB);
+  const hskLevel = parseInt(c.req.param('hskLevel'));
+
+  if (isNaN(hskLevel) || hskLevel < 1 || hskLevel > 9) {
+    return c.json({ error: 'Invalid HSK level. Must be 1-9.' }, 400);
+  }
+
+  const releaseHistory = await db
+    .select()
+    .from(releases)
+    .where(eq(releases.hskLevel, hskLevel))
+    .orderBy(desc(releases.createdAt))
+    .limit(20);
+
+  return c.json({
+    hskLevel,
+    releases: releaseHistory.map(r => ({
+      id: r.id,
+      version: r.version,
+      releaseNotes: r.releaseNotes,
+      lessonsAdded: r.lessonsAdded,
+      lessonsUpdated: r.lessonsUpdated,
+      lessonsRemoved: r.lessonsRemoved,
+      lessonIds: r.lessonIds,
+      releasedAt: r.createdAt,
+    })),
+    totalReleases: releaseHistory.length,
+  });
+});
+
+/**
+ * GET /v1/control-center/all-hsk-status
+ * Get shipping status for all HSK levels at once
+ */
+app.get('/all-hsk-status', async (c) => {
+  const db = drizzle(c.env.DB);
+
+  // Get all lessons grouped by HSK level
+  const allLessons = await db
+    .select({
+      hskLevel: lessons.hskLevel,
+      contentStatus: lessons.contentStatus,
+      isPublished: lessons.isPublished,
+    })
+    .from(lessons);
+
+  // Get latest release per HSK level
+  const allReleases = await db
+    .select()
+    .from(releases)
+    .orderBy(desc(releases.createdAt));
+
+  // Group by HSK level
+  const hskStatus: Record<number, {
+    draft: number;
+    staging: number;
+    live: number;
+    latestVersion: string | null;
+    lastRelease: string | null;
+    hasUnshippedChanges: boolean;
+  }> = {};
+
+  for (let level = 1; level <= 9; level++) {
+    const levelLessons = allLessons.filter(l => l.hskLevel === level);
+    const latestRelease = allReleases.find(r => r.hskLevel === level);
+    
+    const draft = levelLessons.filter(l => l.contentStatus === 'draft' || !l.contentStatus).length;
+    const staging = levelLessons.filter(l => l.contentStatus === 'staging').length;
+    const live = levelLessons.filter(l => l.contentStatus === 'live' && l.isPublished).length;
+
+    hskStatus[level] = {
+      draft,
+      staging,
+      live,
+      latestVersion: latestRelease?.version || null,
+      lastRelease: latestRelease?.createdAt || null,
+      hasUnshippedChanges: draft > 0 || staging > 0,
+    };
+  }
+
+  return c.json({ hskStatus });
+});
+
+/**
+ * GET /v1/control-center/debug-vocab/:hskLevel
+ * Debug endpoint to see what vocabulary is being extracted from lessons
+ */
+app.get('/debug-vocab/:hskLevel', async (c) => {
+  const db = drizzle(c.env.DB);
+  const hskLevel = parseInt(c.req.param('hskLevel'));
+
+  if (isNaN(hskLevel) || hskLevel < 1 || hskLevel > 9) {
+    return c.json({ error: 'Invalid HSK level' }, 400);
+  }
+
+  // Get all lessons for this HSK level
+  const lessonList = await db
+    .select({
+      id: lessons.id,
+      title: lessons.title,
+      lessonNumber: lessons.lessonNumber,
+      targetVocabulary: lessons.targetVocabulary,
+    })
+    .from(lessons)
+    .where(eq(lessons.hskLevel, hskLevel))
+    .orderBy(asc(lessons.lessonNumber));
+
+  // Get blocks for each lesson
+  const debugData = [];
+  for (const lesson of lessonList) {
+    const blocks = await db
+      .select({
+        id: lessonBlocks.id,
+        type: lessonBlocks.type,
+        content: lessonBlocks.content,
+      })
+      .from(lessonBlocks)
+      .where(eq(lessonBlocks.lessonId, lesson.id));
+
+    // Extract hanzi from each block
+    const extractedHanzi: string[] = [];
+    for (const block of blocks) {
+      const content = typeof block.content === 'string' 
+        ? JSON.parse(block.content) 
+        : block.content;
+      
+      // Simple extraction - look for common fields
+      const fields = ['hanzi', 'chinese', 'sentence', 'question', 'correctAnswer', 'heroHanzi', 'focusWord'];
+      for (const field of fields) {
+        if (content?.[field] && typeof content[field] === 'string') {
+          const match = content[field].match(/[\u4e00-\u9fff]+/g);
+          if (match) extractedHanzi.push(...match);
+        }
+      }
+      
+      // Check arrays
+      ['options', 'distractors', 'words', 'focusWords'].forEach(arrField => {
+        if (Array.isArray(content?.[arrField])) {
+          content[arrField].forEach((item: any) => {
+            const text = typeof item === 'string' ? item : item?.hanzi || item?.chinese;
+            if (text) {
+              const match = text.match(/[\u4e00-\u9fff]+/g);
+              if (match) extractedHanzi.push(...match);
+            }
+          });
+        }
+      });
+    }
+
+    debugData.push({
+      lessonId: lesson.id,
+      title: lesson.title,
+      lessonNumber: lesson.lessonNumber,
+      blockCount: blocks.length,
+      blockTypes: blocks.map(b => b.type),
+      extractedHanzi: [...new Set(extractedHanzi)],
+      currentTargetVocab: lesson.targetVocabulary,
+    });
+  }
+
+  // Get vocabulary for comparison
+  const vocabList = await db
+    .select({ id: vocabulary.id, hanzi: vocabulary.hanzi })
+    .from(vocabulary)
+    .where(eq(vocabulary.hskLevel, hskLevel))
+    .limit(50);
+
+  // Collect all extracted hanzi from lessons
+  const allExtractedHanzi = new Set<string>();
+  for (const lesson of debugData) {
+    lesson.extractedHanzi.forEach(h => allExtractedHanzi.add(h));
+  }
+
+  // Search for these specific hanzi in the ENTIRE vocabulary table (any HSK level)
+  const searchResults: Array<{ hanzi: string; hskLevel: number; id: string }> = [];
+  if (allExtractedHanzi.size > 0) {
+    const allVocab = await db
+      .select({ id: vocabulary.id, hanzi: vocabulary.hanzi, hskLevel: vocabulary.hskLevel })
+      .from(vocabulary);
+    
+    for (const v of allVocab) {
+      if (allExtractedHanzi.has(v.hanzi)) {
+        searchResults.push({ hanzi: v.hanzi, hskLevel: v.hskLevel, id: v.id });
+      }
+    }
+  }
+
+  // Summary: which hanzi were found vs not found
+  const foundHanzi = new Set(searchResults.map(r => r.hanzi));
+  const notFoundHanzi = [...allExtractedHanzi].filter(h => !foundHanzi.has(h));
+
+  return c.json({
+    hskLevel,
+    lessonCount: lessonList.length,
+    vocabInHskLevel: vocabList.length,
+    vocabSample: vocabList.slice(0, 20).map(v => v.hanzi),
+    allExtractedHanzi: [...allExtractedHanzi],
+    foundInVocab: searchResults.map(r => `${r.hanzi} (HSK ${r.hskLevel})`),
+    notFoundInVocab: notFoundHanzi,
+    matchingSummary: {
+      totalExtracted: allExtractedHanzi.size,
+      foundCount: searchResults.length,
+      notFoundCount: notFoundHanzi.length,
+      wrongHskLevel: searchResults.filter(r => r.hskLevel !== hskLevel).map(r => `${r.hanzi} is HSK ${r.hskLevel}, not ${hskLevel}`),
+    },
+    lessons: debugData,
+  });
+});
+
+/**
+ * POST /v1/control-center/sync-vocab/:hskLevel
+ * Manually sync vocabulary for all lessons in an HSK level
+ * Extracts vocabulary from lesson blocks and populates targetVocabulary
+ */
+app.post('/sync-vocab/:hskLevel', async (c) => {
+  const db = drizzle(c.env.DB);
+  const hskLevel = parseInt(c.req.param('hskLevel'));
+
+  if (isNaN(hskLevel) || hskLevel < 1 || hskLevel > 9) {
+    return c.json({ error: 'Invalid HSK level. Must be 1-9.' }, 400);
+  }
+
+  const vocabExtractor = new VocabExtractor(c.env.DB, c.get('requestId'));
+
+  try {
+    const result = await vocabExtractor.syncAllLessons(hskLevel);
+
+    // Verify: Check if lessons actually have targetVocabulary now
+    const lessonsAfterSync = await db
+      .select({
+        id: lessons.id,
+        title: lessons.title,
+        targetVocabulary: lessons.targetVocabulary,
+      })
+      .from(lessons)
+      .where(eq(lessons.hskLevel, hskLevel));
+
+    const verification = lessonsAfterSync.map(l => ({
+      id: l.id,
+      title: l.title,
+      vocabCount: Array.isArray(l.targetVocabulary) ? l.targetVocabulary.length : 0,
+      sample: Array.isArray(l.targetVocabulary) ? l.targetVocabulary.slice(0, 3) : l.targetVocabulary,
+    }));
+
+    return c.json({
+      success: true,
+      hskLevel,
+      lessonsSynced: result.synced,
+      totalVocabMatched: result.totalVocab,
+      errors: result.errors,
+      verification, // Show actual state after sync
+    });
+  } catch (error) {
+    logWithContext('error', 'release.sync_vocab_failed', {
+      requestId: c.get('requestId'),
+      meta: { hskLevel, error: (error as Error).message },
+    });
+    return c.json({
+      error: 'Failed to sync vocabulary',
+      details: (error as Error).message,
+    }, 500);
+  }
 });
 
 export default app;

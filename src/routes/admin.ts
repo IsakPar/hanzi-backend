@@ -122,7 +122,7 @@ async function triggerValidatorSync(env: { VALIDATOR_URL?: string; VALIDATOR_API
 
 // Zod Schema for Lesson Creation
 const createLessonSchema = z.object({
-  title: z.string().min(3),
+  title: z.string().min(1), // Reduced from 3 to allow short titles
   subtitle: z.string().optional(),
   hskLevel: z.number().min(1).max(9),
   lessonNumber: z.number().int().min(1).optional(), // Auto-increment if not provided
@@ -136,13 +136,24 @@ const createLessonSchema = z.object({
   blocks: z.array(z.object({
     type: z.string(), // e.g. 'hero_hanzi', 'explain'
     content: z.record(z.any()) // The specific block data
-  })).min(1)
+  })).optional().default([]) // Allow empty blocks, default to empty array
 });
 
 app.post('/lessons', zValidator('json', createLessonSchema), async (c) => {
   const data = c.req.valid('json');
   const db = drizzle(c.env.DB);
   const lessonId = crypto.randomUUID();
+
+  // Debug: Log incoming data
+  logWithContext('info', 'admin.lesson_create_start', {
+    requestId: c.get('requestId'),
+    meta: {
+      title: data.title,
+      hskLevel: data.hskLevel,
+      lessonType: data.lessonType,
+      blockCount: data.blocks?.length || 0,
+    },
+  });
 
   try {
     // Auto-increment lesson number if not provided
@@ -162,11 +173,15 @@ app.post('/lessons', zValidator('json', createLessonSchema), async (c) => {
         .limit(1);
       
       lessonNumber = maxNumberResult[0]?.maxNumber ? maxNumberResult[0].maxNumber + 1 : 1;
+      logWithContext('info', 'admin.lesson_number_assigned', {
+        requestId: c.get('requestId'),
+        meta: { lessonNumber },
+      });
     }
 
     // Transaction-safe: Use batch operations
     // D1 batch operations are atomic - all succeed or all fail
-    const lessonInsert = db.insert(lessons).values({
+    const lessonValues = {
       id: lessonId,
       title: data.title,
       subtitle: data.subtitle || null,
@@ -180,41 +195,68 @@ app.post('/lessons', zValidator('json', createLessonSchema), async (c) => {
       tags: data.tags || null,
       targetVocabulary: data.targetVocabulary || null,
       isPublished: false, // Draft by default
+    };
+
+    logWithContext('info', 'admin.lesson_insert_prepared', {
+      requestId: c.get('requestId'),
+      meta: { lessonId, title: lessonValues.title },
     });
 
-    const blockInserts = data.blocks.length > 0
-      ? db.insert(lessonBlocks).values(
-          data.blocks.map((block, index) => ({
-            id: crypto.randomUUID(),
-            lessonId: lessonId,
-            type: block.type,
-            orderIndex: index,
-            content: block.content,
-          }))
-        )
-      : null;
+    // First insert the lesson
+    await db.insert(lessons).values(lessonValues);
 
-    // Execute in batch (atomic operation)
-    if (blockInserts) {
-      await db.batch([lessonInsert, blockInserts]);
-    } else {
-      await lessonInsert;
+    // Then insert blocks in batches to avoid D1 parameter limit
+    if (data.blocks && data.blocks.length > 0) {
+      const BATCH_SIZE = 10; // D1 has ~100 param limit, each block has ~5 params
+      const blockValues = data.blocks.map((block, index) => ({
+        id: crypto.randomUUID(),
+        lessonId: lessonId,
+        type: block.type,
+        orderIndex: index,
+        content: block.content,
+      }));
+
+      logWithContext('info', 'admin.lesson_blocks_insert', {
+        requestId: c.get('requestId'),
+        meta: { blockCount: blockValues.length, batches: Math.ceil(blockValues.length / BATCH_SIZE) },
+      });
+
+      for (let i = 0; i < blockValues.length; i += BATCH_SIZE) {
+        const batch = blockValues.slice(i, i + BATCH_SIZE);
+        await db.insert(lessonBlocks).values(batch);
+      }
     }
 
     // Trigger validator sync if lesson has vocabulary
     if (data.targetVocabulary && data.targetVocabulary.length > 0) {
       triggerValidatorSync(c.env);
     }
+
+    logWithContext('info', 'admin.lesson_created_success', {
+      requestId: c.get('requestId'),
+      meta: { lessonId, lessonNumber },
+    });
     
     return c.json({ success: true, id: lessonId, lessonNumber });
   } catch (error) {
+    const err = error as Error;
     logWithContext('error', 'admin.lesson_creation_failed', {
       requestId: c.get('requestId'),
       meta: {
-        message: (error as Error).message,
+        message: err.message,
+        stack: err.stack?.substring(0, 500),
+        name: err.name,
       },
     });
-    return c.json({ error: 'Failed to create lesson' }, 500);
+    // Return more details to help debug
+    return c.json({ 
+      error: 'Failed to create lesson',
+      details: err.message,
+      hint: err.message.includes('UNIQUE') ? 'Lesson with this title/number already exists' :
+            err.message.includes('NOT NULL') ? 'Missing required field' :
+            err.message.includes('FOREIGN KEY') ? 'Invalid reference (vocabulary or unit)' :
+            undefined,
+    }, 500);
   }
 });
 
@@ -360,17 +402,21 @@ app.put('/lessons/:id', zValidator('json', updateLessonSchema), async (c) => {
       // Delete existing blocks
       await db.delete(lessonBlocks).where(eq(lessonBlocks.lessonId, lessonId));
       
-      // Insert new blocks
+      // Insert new blocks in batches to avoid D1 parameter limit
       if (data.blocks.length > 0) {
-        await db.insert(lessonBlocks).values(
-          data.blocks.map((block, idx) => ({
-            id: block.id || crypto.randomUUID(),
-            lessonId,
-            type: block.type,
-            orderIndex: idx,
-            content: block.content,
-          }))
-        );
+        const BATCH_SIZE = 10; // D1 has ~100 param limit, each block has ~5 params
+        const blockValues = data.blocks.map((block, idx) => ({
+          id: block.id || crypto.randomUUID(),
+          lessonId,
+          type: block.type,
+          orderIndex: idx,
+          content: block.content,
+        }));
+        
+        for (let i = 0; i < blockValues.length; i += BATCH_SIZE) {
+          const batch = blockValues.slice(i, i + BATCH_SIZE);
+          await db.insert(lessonBlocks).values(batch);
+        }
       }
     }
     
@@ -550,17 +596,21 @@ app.post('/lessons/:id/duplicate', async (c) => {
       updatedAt: new Date(),
     });
     
-    // Duplicate blocks
+    // Duplicate blocks in batches to avoid D1 parameter limit
     if (originalBlocks.length > 0) {
-      await db.insert(lessonBlocks).values(
-        originalBlocks.map(b => ({
-          id: crypto.randomUUID(),
-          lessonId: newId,
-          type: b.type,
-          orderIndex: b.orderIndex,
-          content: b.content,
-        }))
-      );
+      const BATCH_SIZE = 10;
+      const blockValues = originalBlocks.map(b => ({
+        id: crypto.randomUUID(),
+        lessonId: newId,
+        type: b.type,
+        orderIndex: b.orderIndex,
+        content: b.content,
+      }));
+      
+      for (let i = 0; i < blockValues.length; i += BATCH_SIZE) {
+        const batch = blockValues.slice(i, i + BATCH_SIZE);
+        await db.insert(lessonBlocks).values(batch);
+      }
     }
     
     logWithContext('info', 'admin.lesson.duplicated', {

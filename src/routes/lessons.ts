@@ -174,11 +174,23 @@ app.get('/:id', async (c) => {
   // Combine into the JSON structure the frontend expects
   return c.json({
     ...lesson,
-    blocks: blocks.map(b => ({
-      id: b.id,
-      type: b.type,
-      ...b.content as object // Spread the JSON content
-    }))
+    blocks: blocks.map(b => {
+      // Parse content if it's stored as a string
+      let content = b.content;
+      if (typeof content === 'string') {
+        try {
+          content = JSON.parse(content);
+        } catch (e) {
+          content = {}; // Fallback to empty object
+        }
+      }
+      
+      return {
+        id: b.id,
+        type: b.type,
+        content: content || {}, // Properly nested content object
+      };
+    })
   });
 });
 

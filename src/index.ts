@@ -31,6 +31,9 @@ import aiTutorTestRouter from './routes/ai-tutor-test';
 import healthRouter from './routes/health';
 import distractorsRouter from './routes/distractors';
 import { adminK6Router } from './routes/admin-k6';
+import aiStudioRouter from './routes/ai-studio';
+import releasesRouter from './routes/releases';
+import storiesMobileRouter from './routes/stories-mobile';
 import type { AppEnv } from './types/app';
 import { requestContextMiddleware } from './middleware/request-context';
 import { logWithContext } from './utils/logger';
@@ -66,7 +69,8 @@ app.use('/*', async (c, next) => {
   if (c.req.method === 'OPTIONS') {
     const headers: Record<string, string> = {
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID, Cookie',
+      'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Expose-Headers': 'X-Request-ID',
       'Access-Control-Max-Age': '86400',
     };
@@ -91,6 +95,7 @@ app.use('/*', async (c, next) => {
     c.res.headers.set('Access-Control-Allow-Origin', '*');
   } else if (isAllowed(origin)) {
     c.res.headers.set('Access-Control-Allow-Origin', origin);
+    c.res.headers.set('Access-Control-Allow-Credentials', 'true');
     c.res.headers.set('Access-Control-Expose-Headers', 'X-Request-ID');
   } else {
     console.error('CORS Rejected:', origin);
@@ -158,6 +163,9 @@ app.route('/v1/ai-tutor', aiTutorRouter); // AI Tutor lesson generation
 app.route('/v1/ai-tutor-test', aiTutorTestRouter); // AI Tutor Test Lab (admin only)
 app.route('/v1/health', healthRouter); // Health checks and diagnostics
 app.route('/v1/distractors', distractorsRouter); // Pedagogic distractor generation
+app.route('/v1/ai-studio', aiStudioRouter); // AI Lesson Generation Studio
+app.route('/v1/releases', releasesRouter); // Content bundles for mobile app
+app.route('/v1/mobile/stories', storiesMobileRouter); // Mobile stories API (public, no auth)
 
 // Export default handler with cron support
 export default {

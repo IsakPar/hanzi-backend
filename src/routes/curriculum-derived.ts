@@ -238,6 +238,44 @@ app.get('/export', async (c) => {
   });
 });
 
+/**
+ * GET /v1/curriculum/vocab-export
+ * Export ALL vocabulary for Python validator (not just lesson-assigned)
+ * Use this when you don't have lessons yet but want health check to work
+ * Returns: { version, words: { hanzi: "hskX", ... }, wordCount }
+ */
+app.get('/vocab-export', async (c) => {
+  const db = drizzle(c.env.DB);
+
+  // Get ALL vocabulary
+  const allVocab = await db
+    .select({
+      id: vocabulary.id,
+      hanzi: vocabulary.hanzi,
+      hskLevel: vocabulary.hskLevel,
+    })
+    .from(vocabulary);
+
+  // Create simple lookup: hanzi -> "hskX" (use HSK level as position)
+  const words: Record<string, string> = {};
+  for (const v of allVocab) {
+    // Use format like "hsk1-l0" (lesson 0 = database vocab, not from lesson)
+    words[v.hanzi] = `hsk${v.hskLevel}-l0`;
+  }
+
+  // Version hash based on vocab content
+  const hash = createHash('md5')
+    .update(JSON.stringify(words))
+    .digest('hex');
+
+  return c.json({
+    version: hash,
+    wordCount: allVocab.length,
+    lessonCount: 0,
+    words,
+  });
+});
+
 // ═══════════════════════════════════════════════════════════
 // ADMIN ENDPOINTS (for portal)
 // ═══════════════════════════════════════════════════════════

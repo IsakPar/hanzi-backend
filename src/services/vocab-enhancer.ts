@@ -19,6 +19,12 @@ export interface GenerateExampleResult {
   tokensUsed: number;
 }
 
+export interface TranslationResult {
+  english: string;
+  pinyin: string;
+  tokensUsed: number;
+}
+
 /**
  * Generate an example sentence for a vocabulary word using AI
  */
@@ -33,12 +39,30 @@ export async function generateExampleSentence(
   const client = createOpenRouterClient(openrouterApiKey);
   const usageLogger = db ? new AIUsageLogger(db) : null;
 
-  const prompt = `Create an example sentence for: ${hanzi} (${english})
+  // Build HSK vocabulary guidance
+  const hskGuidance = hskLevel <= 2 
+    ? `Use ONLY basic HSK ${hskLevel} vocabulary. Keep sentence very simple (3-6 words).`
+    : hskLevel <= 4
+    ? `Use HSK ${hskLevel} or lower vocabulary. Keep sentence moderately simple (4-8 words).`
+    : `Use vocabulary appropriate for HSK ${hskLevel}. Sentence can be more complex (5-12 words).`;
 
+  const prompt = `Create an example sentence that USES the word "${hanzi}" (${english}) in a natural, meaningful context.
+
+IMPORTANT RULES:
+1. The sentence must CONTAIN and USE the word "${hanzi}" - don't just repeat the word alone
+2. ${hskGuidance}
+3. The sentence should demonstrate how the word is used in real conversation
+4. Include accurate pinyin with tone marks (ā, á, ǎ, à, etc.)
+
+Word to use: ${hanzi} (${english})
 HSK Level: ${hskLevel}
 
-Output ONLY this JSON, nothing else:
-{"chinese": "一个简单的句子", "pinyin": "yī gè jiǎn dān de jù zi", "english": "A simple sentence"}`;
+Example format:
+For 妈妈 (mom), HSK1: {"chinese": "我爱我的妈妈。", "pinyin": "wǒ ài wǒ de māmā.", "english": "I love my mom."}
+For 学习 (study), HSK2: {"chinese": "我每天学习中文。", "pinyin": "wǒ měi tiān xuéxí zhōngwén.", "english": "I study Chinese every day."}
+
+Output ONLY the JSON object, nothing else:
+{"chinese": "...", "pinyin": "...", "english": "..."}`;
 
   try {
     const completion = await client.chat.completions.create({
@@ -139,6 +163,113 @@ Output ONLY this JSON, nothing else:
 
   } catch (err) {
     logWithContext('error', 'vocab.generate_example.failed', {
+      requestId,
+      meta: { hanzi, error: (err as Error).message },
+    });
+    throw err;
+  }
+}
+
+/**
+ * Translate Chinese word to English and generate pinyin using AI
+ */
+export async function translateWord(
+  hanzi: string,
+  openrouterApiKey: string,
+  requestId: string,
+  db?: D1Database
+): Promise<TranslationResult> {
+  const client = createOpenRouterClient(openrouterApiKey);
+  const usageLogger = db ? new AIUsageLogger(db) : null;
+
+  const prompt = `Translate this Chinese word/phrase to English and provide pinyin with tone marks.
+
+Chinese: ${hanzi}
+
+Rules:
+1. Provide the most common/primary English meaning
+2. Use accurate pinyin with tone marks (ā, á, ǎ, à, ē, é, ě, è, etc.)
+3. Keep translation concise (1-4 words typically)
+
+Examples:
+妈妈 → {"english": "mom", "pinyin": "māmā"}
+学习 → {"english": "to study", "pinyin": "xuéxí"}
+非常 → {"english": "very", "pinyin": "fēicháng"}
+电脑 → {"english": "computer", "pinyin": "diànnǎo"}
+
+Output ONLY JSON, nothing else:
+{"english": "...", "pinyin": "..."}`;
+
+  try {
+    logWithContext('info', 'vocab.translate_word.calling_openrouter', {
+      requestId,
+      meta: { hanzi, model: OPENROUTER_MODELS.QWEN_CODER_32B },
+    });
+
+    const completion = await client.chat.completions.create({
+      model: OPENROUTER_MODELS.QWEN_CODER_32B,
+      messages: [
+        { role: 'system', content: 'You are a Chinese-English translator. Output JSON only.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.3, // Lower temperature for more consistent translations
+      max_tokens: 100,
+      // Don't specify provider to allow fallback
+    });
+
+    const rawContent = completion.choices[0]?.message?.content || '';
+    const tokensUsed = completion.usage?.total_tokens || 0;
+
+    // Extract JSON from response
+    const jsonMatch = rawContent.match(/\{[^{}]*"english"\s*:\s*"[^"]*"[^{}]*"pinyin"\s*:\s*"[^"]*"[^{}]*\}/);
+    
+    if (!jsonMatch) {
+      // Try fallback regex
+      const fallback = rawContent.match(/\{[^{}]+\}/);
+      if (!fallback) {
+        throw new Error(`No JSON found in response: ${rawContent.substring(0, 100)}`);
+      }
+    }
+
+    const jsonStr = jsonMatch ? jsonMatch[0] : rawContent.match(/\{[^{}]+\}/)![0];
+    const result = JSON.parse(jsonStr) as { english: string; pinyin: string };
+
+    if (!result.english || !result.pinyin) {
+      throw new Error('Invalid response: missing english or pinyin');
+    }
+
+    // Log AI usage
+    const inputTokens = completion.usage?.prompt_tokens || 0;
+    const outputTokens = completion.usage?.completion_tokens || 0;
+    const cost = estimateOpenRouterCost(OPENROUTER_MODELS.QWEN_CODER_32B, inputTokens, outputTokens);
+    
+    if (usageLogger) {
+      await usageLogger.log({
+        sessionId: requestId,
+        model: OPENROUTER_MODELS.QWEN_CODER_32B,
+        endpoint: 'vocab-enhancer',
+        inputTokens,
+        outputTokens,
+        cost,
+        success: true,
+        requestType: 'translate_word',
+        metadata: { hanzi },
+      });
+    }
+
+    logWithContext('info', 'vocab.translate_word.success', {
+      requestId,
+      meta: { hanzi, english: result.english, tokensUsed, cost },
+    });
+
+    return { 
+      english: result.english, 
+      pinyin: result.pinyin,
+      tokensUsed 
+    };
+
+  } catch (err) {
+    logWithContext('error', 'vocab.translate_word.failed', {
       requestId,
       meta: { hanzi, error: (err as Error).message },
     });
