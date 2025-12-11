@@ -628,7 +628,7 @@ app.post('/ship', async (c) => {
   const updatedIds = lessonIds.filter(id => currentLiveIds.includes(id));
 
   // Calculate vocab to ship based on mode
-  let vocabToShip: string[] = [];
+  let vocabCandidates: string[] = [];
   const mode = vocabMode || 'lessons_only';
   
   if (mode === 'all') {
@@ -637,10 +637,10 @@ app.post('/ship', async (c) => {
       .select({ id: vocabulary.id })
       .from(vocabulary)
       .where(eq(vocabulary.hskLevel, hskLevel));
-    vocabToShip = allVocab.map(v => v.id);
+    vocabCandidates = allVocab.map(v => v.id);
   } else if (mode === 'selected' && selectedVocabIds) {
     // Ship only selected vocab
-    vocabToShip = selectedVocabIds;
+    vocabCandidates = selectedVocabIds;
   } else {
     // Default: lessons_only - ship vocab used in shipped lessons
     const shippedLessons = await db
@@ -653,7 +653,50 @@ app.post('/ship', async (c) => {
       const targetVocab = lesson.targetVocabulary as string[] || [];
       targetVocab.forEach(id => vocabSet.add(id));
     }
-    vocabToShip = Array.from(vocabSet);
+    vocabCandidates = Array.from(vocabSet);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // QUALITY GATE: Only ship vocab that is COMPLETE
+  // Must have: audio, example sentence, and category
+  // ═══════════════════════════════════════════════════════════════════
+  let vocabToShip: string[] = [];
+  let skippedVocab: { id: string; hanzi: string; reason: string }[] = [];
+  
+  if (vocabCandidates.length > 0) {
+    const vocabDetails = await db
+      .select({
+        id: vocabulary.id,
+        hanzi: vocabulary.hanzi,
+        wordAudioR2Key: vocabulary.wordAudioR2Key,
+        exampleChinese: vocabulary.exampleChinese,
+        category: vocabulary.category,
+      })
+      .from(vocabulary)
+      .where(inArray(vocabulary.id, vocabCandidates));
+    
+    for (const v of vocabDetails) {
+      const reasons: string[] = [];
+      if (!v.wordAudioR2Key) reasons.push('no audio');
+      if (!v.exampleChinese) reasons.push('no example');
+      if (!v.category) reasons.push('no category');
+      
+      if (reasons.length === 0) {
+        vocabToShip.push(v.id);
+      } else {
+        skippedVocab.push({ id: v.id, hanzi: v.hanzi, reason: reasons.join(', ') });
+      }
+    }
+    
+    logWithContext('info', 'release.vocab_quality_gate', {
+      requestId: c.get('requestId'),
+      meta: {
+        candidates: vocabCandidates.length,
+        passed: vocabToShip.length,
+        skipped: skippedVocab.length,
+        skippedSample: skippedVocab.slice(0, 10),
+      },
+    });
   }
 
   try {
@@ -714,7 +757,13 @@ app.post('/ship', async (c) => {
         lessonsAdded: newIds.length,
         lessonsUpdated: updatedIds.length,
         vocabShipped: vocabToShip.length,
+        vocabSkipped: skippedVocab.length,
         vocabMode: mode,
+      },
+      qualityGate: {
+        passed: vocabToShip.length,
+        skipped: skippedVocab.length,
+        skippedItems: skippedVocab.slice(0, 20), // Show first 20 skipped
       },
     });
   } catch (err) {
