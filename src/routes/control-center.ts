@@ -556,6 +556,9 @@ app.get('/preview-release/:hskLevel', async (c) => {
       missingAudio: vocabList.length - vocabWithAudio,
       inLessons: vocabInLessons,
       notInLessons: vocabList.length - vocabInLessons,
+      // Quality gate: count vocab that would actually ship
+      complete: vocabList.filter(v => v.wordAudioR2Key && v.exampleChinese && v.category).length,
+      incomplete: vocabList.filter(v => !v.wordAudioR2Key || !v.exampleChinese || !v.category).length,
       // Full vocab list for selection UI
       items: vocabList.map(v => ({
         id: v.id,
@@ -566,15 +569,19 @@ app.get('/preview-release/:hskLevel', async (c) => {
         hasAudio: !!v.wordAudioR2Key,
         hasExample: !!v.exampleChinese,
         usedInLesson: vocabUsedInLessons.has(v.id),
+        isComplete: !!(v.wordAudioR2Key && v.exampleChinese && v.category),
       })),
     },
     suggestedVersion,
     previewHash,
+    // Allow shipping if there are lesson changes OR if there are live lessons to re-ship
     hasChanges: newLessons.length > 0 || updatedLessons.length > 0,
+    canForceShip: liveLessons.length > 0, // Allow re-shipping live lessons
     summary: {
       totalNew: newLessons.length,
       totalUpdated: updatedLessons.length,
       totalStaying: stayingLessons.length + unchangedLessons.length,
+      totalLive: liveLessons.length,
     },
   });
 });
