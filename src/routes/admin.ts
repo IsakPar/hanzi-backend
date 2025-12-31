@@ -395,6 +395,13 @@ app.put('/lessons/:id', zValidator('json', updateLessonSchema), async (c) => {
     if (data.targetVocabulary !== undefined) updateData.targetVocabulary = data.targetVocabulary;
     if (data.isPublished !== undefined) updateData.isPublished = data.isPublished;
     
+    // If this lesson was "live" and we're updating content, mark it as "staging"
+    // so the Release Manager detects it as a pending change
+    if (existing[0].contentStatus === 'live' && (data.blocks || data.title !== undefined || data.targetVocabulary !== undefined)) {
+      updateData.contentStatus = 'staging';
+      updateData.contentHash = null; // Clear hash so it gets recalculated on next release
+    }
+    
     await db.update(lessons).set(updateData).where(eq(lessons.id, lessonId));
     
     // Update blocks if provided

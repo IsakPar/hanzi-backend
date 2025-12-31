@@ -6,15 +6,18 @@ import { AnalyticsService } from '../services/analytics';
 import { AIUsageLogger } from '../services/ai-usage-logger';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
-import { aiRateLimit } from '../middleware/rate-limit';
+import { aiRateLimit, adminRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
 
-// Apply rate limiting to speech endpoints (ElevenLabs costs $$)
-app.use('/*', aiRateLimit);
-
 // All speech endpoints require admin auth (ElevenLabs costs $$)
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
+
+// Rate limiting: 
+// - /save endpoint uses admin rate limit (100/min) since it's just R2 upload
+// - All other endpoints use AI rate limit (20/min) since they call external APIs
+app.use('/save', adminRateLimit);
+app.use('/*', aiRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // VOICE CONFIGURATION
@@ -85,13 +88,29 @@ const previewLessonAudioSchema = z.object({
   voice: z.string().default(DEFAULT_VOICE),
 });
 
-// NEW: Save lesson audio schema
+// MFCC data schema (for speech comparison)
+const mfccDataSchema = z.object({
+  coefficients: z.array(z.array(z.number())),
+  sampleRate: z.number(),
+  hopMs: z.number(),
+  numCoeffs: z.number(),
+  durationMs: z.number(),
+  numFrames: z.number(),
+});
+
+// NEW: Save lesson audio schema (MFCC extracted by TTS service now)
 const saveLessonAudioSchema = z.object({
   audioBase64: z.string().min(1),
   lessonId: z.string().min(1),
   blockId: z.string().min(1),
   durationMs: z.number().int().optional(),
+  // mfccData no longer sent from client - extracted by TTS service
 });
+
+// TTS service URL for MFCC extraction
+function getTtsServiceUrl(env: AppEnv['Bindings']): string {
+  return (env as Record<string, unknown>).TTS_SERVICE_URL as string || 'https://hanzi-tts-46ze0.sevalla.app';
+}
 
 const generateBatchSchema = z.object({
   segments: z.array(z.object({
@@ -166,8 +185,22 @@ async function callElevenLabsAPI(
   apiKey: string,
   voiceId: string,
   text: string,
-  speed: number = 1.0
+  speed: number = 1.0,
+  options: {
+    /** Higher = more consistent, lower = more expressive. Range: 0-1 */
+    stability?: number;
+    /** Language code (ISO 639-1) for better pronunciation */
+    languageCode?: string;
+    /** Seed for deterministic output (0-4294967295) */
+    seed?: number;
+  } = {}
 ): Promise<{ audioBuffer: ArrayBuffer; error?: string; statusCode?: number }> {
+  const {
+    stability = 0.85,     // Higher = more neutral/concise, less expressive
+    languageCode = 'zh',  // Chinese language code for better pronunciation
+    seed,                 // Optional: use for reproducible results
+  } = options;
+
   try {
     const response = await fetch(
       `${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`,
@@ -181,14 +214,18 @@ async function callElevenLabsAPI(
         body: JSON.stringify({
           text,
           model_id: 'eleven_multilingual_v2',
+          language_code: languageCode,
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0.0,
+            stability,              // 0.85 = neutral/concise, less "happy"
+            similarity_boost: 0.70, // Balanced - not too animated
+            style: 0.0,             // No style exaggeration
             use_speaker_boost: true,
+            speed,                  // Controls speaking pace
           },
-          // Speed is controlled via speaking_rate in some models
-          // For multilingual_v2, we may need to adjust text or use SSML
+          // Seed for deterministic output (if provided)
+          ...(seed !== undefined && { seed }),
+          // Text normalization for better number/date reading
+          apply_text_normalization: 'auto',
         }),
       }
     );
@@ -469,8 +506,9 @@ app.post('/save', zValidator('json', saveSpeechSchema), async (c) => {
     // Convert base64 to binary
     const audioBuffer = base64ToArrayBuffer(audioBase64);
 
-    // Generate R2 key
-    const r2Key = `stories/segments/${storyId}/${segmentId}.mp3`;
+    // Generate R2 key - use 'draft' for new stories (same pattern as lessons)
+    const effectiveStoryId = storyId === 'new' ? 'draft' : storyId;
+    const r2Key = `stories/segments/${effectiveStoryId}/${segmentId}.mp3`;
     
     // Upload to R2
     await c.env.CONTENT_BUCKET.put(r2Key, audioBuffer, {
@@ -691,38 +729,130 @@ app.post('/preview-for-lesson', zValidator('json', previewLessonAudioSchema), as
 /**
  * POST /speech/save-for-lesson
  * Save approved audio (base64) to R2 for a lesson block
+ * Calls TTS service to extract MFCC features for speech comparison
  * Used after preview/approval flow
  */
 app.post('/save-for-lesson', zValidator('json', saveLessonAudioSchema), async (c) => {
+  const startTime = Date.now();
   const { audioBase64, lessonId, blockId, durationMs } = c.req.valid('json');
 
   try {
+    console.log(`[TIMING] save-for-lesson START, audioSize=${audioBase64.length}`);
+    
     // Convert base64 to binary
     const audioBuffer = base64ToArrayBuffer(audioBase64);
 
-    // Generate R2 key
+    // Generate R2 keys
     const effectiveLessonId = lessonId || 'draft';
-    const r2Key = `lessons/audio/${effectiveLessonId}/${blockId}.mp3`;
+    const audioR2Key = `lessons/audio/${effectiveLessonId}/${blockId}.mp3`;
+    const mfccR2Key = `lessons/audio/${effectiveLessonId}/${blockId}.mfcc.json`;
     
-    // Upload to R2
-    await c.env.CONTENT_BUCKET.put(r2Key, audioBuffer, {
+    // Upload audio to R2
+    const r2Start = Date.now();
+    await c.env.CONTENT_BUCKET.put(audioR2Key, audioBuffer, {
       httpMetadata: { contentType: 'audio/mpeg' },
     });
+    console.log(`[TIMING] R2 audio upload: ${Date.now() - r2Start}ms`);
 
     // Get CDN URL
     const cdnBaseUrl = (c.env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
-    const audioUrl = `${cdnBaseUrl}/${r2Key}`;
+    const audioUrl = `${cdnBaseUrl}/${audioR2Key}`;
+
+    // Extract MFCC via TTS service (async, don't block on failure)
+    let mfccUrl: string | undefined;
+    let mfccExtracted = false;
+    
+    try {
+      const ttsServiceUrl = getTtsServiceUrl(c.env);
+      
+      console.log(`[TIMING] Starting MFCC extraction via ${ttsServiceUrl}`);
+      const mfccStart = Date.now();
+      
+      const mfccResponse = await fetch(`${ttsServiceUrl}/extract-mfcc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioBase64 }),
+      });
+      
+      console.log(`[TIMING] MFCC fetch complete: ${Date.now() - mfccStart}ms, status=${mfccResponse.status}`);
+      
+      if (mfccResponse.ok) {
+        const mfccData = await mfccResponse.json() as {
+          coefficients: number[][];
+          sampleRate: number;
+          hopMs: number;
+          numCoeffs: number;
+          durationMs: number;
+          numFrames: number;
+          latencyMs: number;
+        };
+        
+        // Save MFCC to R2
+        const mfccJson = JSON.stringify(mfccData);
+        const mfccR2Start = Date.now();
+        await c.env.CONTENT_BUCKET.put(mfccR2Key, mfccJson, {
+          httpMetadata: { contentType: 'application/json' },
+        });
+        console.log(`[TIMING] R2 MFCC upload: ${Date.now() - mfccR2Start}ms`);
+        
+        mfccUrl = `${cdnBaseUrl}/${mfccR2Key}`;
+        mfccExtracted = true;
+        console.log(`[TIMING] TOTAL save-for-lesson: ${Date.now() - startTime}ms`);
+        
+        logWithContext('info', 'speech.mfcc_saved', {
+          requestId: c.get('requestId'),
+          meta: { 
+            lessonId, 
+            blockId, 
+            mfccR2Key,
+            numFrames: mfccData.numFrames,
+            numCoeffs: mfccData.numCoeffs,
+            durationMs: mfccData.durationMs,
+            extractionLatencyMs: mfccData.latencyMs,
+          },
+        });
+      } else {
+        const errorText = await mfccResponse.text();
+        logWithContext('warn', 'speech.mfcc_extraction_failed', {
+          requestId: c.get('requestId'),
+          meta: { 
+            lessonId, 
+            blockId, 
+            status: mfccResponse.status,
+            error: errorText,
+          },
+        });
+      }
+    } catch (mfccError) {
+      // Log but don't fail - audio is already saved
+      logWithContext('warn', 'speech.mfcc_extraction_error', {
+        requestId: c.get('requestId'),
+        meta: { 
+          lessonId, 
+          blockId, 
+          error: (mfccError as Error).message,
+        },
+      });
+    }
 
     logWithContext('info', 'speech.save_lesson_audio_success', {
       requestId: c.get('requestId'),
-      meta: { lessonId, blockId, r2Key, durationMs },
+      meta: { 
+        lessonId, 
+        blockId, 
+        audioR2Key, 
+        durationMs,
+        mfccExtracted,
+      },
     });
 
     return c.json({
       success: true,
-      r2Key,
+      r2Key: audioR2Key,
       audioUrl,
       audioDurationMs: durationMs,
+      mfccUrl,
+      mfccExtracted,
     });
   } catch (err) {
     logWithContext('error', 'speech.save_lesson_audio_failed', {

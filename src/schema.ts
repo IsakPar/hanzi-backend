@@ -547,6 +547,9 @@ export const storySeries = sqliteTable('story_series', {
   hskLevel: integer('hsk_level'),
   orderIndex: integer('order_index').default(0),
   isPublished: integer('is_published', { mode: 'boolean' }).default(false),
+  accessTier: text('access_tier').default('free'), // 'free' | 'premium'
+  tags: text('tags'), // JSON array of tags
+  metadata: text('metadata'), // JSON for characters, parts, extended info
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
 }, (table) => ({
@@ -582,6 +585,9 @@ export const stories = sqliteTable('stories', {
   // Cover image
   coverImageR2Key: text('cover_image_r2_key'),
   
+  // Story type: 'text' for narration, 'dialogue' for conversations with speakers
+  storyType: text('story_type', { enum: ['text', 'dialogue'] }).default('text'),
+  
   // Practice blocks (same as lesson blocks - for post-story exercises)
   practiceBlocks: text('practice_blocks', { mode: 'json' }),
   
@@ -616,6 +622,9 @@ export const storySentences = sqliteTable('story_sentences', {
   chinese: text('chinese').notNull(),
   pinyin: text('pinyin').notNull(),
   english: text('english').notNull(),
+  
+  // Speaker name for dialogue stories (e.g., "妈妈", "小明")
+  speaker: text('speaker'),
   
   audioR2Key: text('audio_r2_key'),
   

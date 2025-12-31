@@ -120,6 +120,208 @@ interface GlobalManifest {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// BLOCK ENRICHMENT TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+interface VocabLookup {
+  hanzi: string;
+  pinyin: string;
+  audioUrl: string | null;
+}
+
+interface BlockEnrichmentResult {
+  enrichedContent: any;
+  errors: string[];
+  warnings: string[];
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Extract Chinese words/characters from a string
+ */
+function extractChineseWords(text: string): string[] {
+  if (!text) return [];
+  const matches = text.match(/[\u4e00-\u9fff]+/g);
+  return matches || [];
+}
+
+/**
+ * Build a lookup map from vocabulary array
+ */
+function buildVocabLookup(vocabList: any[]): Map<string, VocabLookup> {
+  const lookup = new Map<string, VocabLookup>();
+  for (const v of vocabList) {
+    // Use bundle-relative path format (same as vocabulary in bundle)
+    const ext = v.wordAudioR2Key?.split('.').pop() || 'mp3';
+    lookup.set(v.hanzi, {
+      hanzi: v.hanzi,
+      pinyin: v.pinyin,
+      audioUrl: v.wordAudioR2Key ? `audio/vocab/${v.hanzi}.${ext}` : null,
+    });
+  }
+  return lookup;
+}
+
+/**
+ * Enrich a single block with vocabulary data
+ */
+function enrichBlock(
+  block: { type: string; content: any },
+  vocabLookup: Map<string, VocabLookup>,
+  lessonTitle: string
+): BlockEnrichmentResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const content = JSON.parse(JSON.stringify(block.content)); // Deep clone
+
+  const blockType = block.type;
+
+  // ─────────────────────────────────────────────────────────────────
+  // EXERCISE_MULTIPLE_CHOICE
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'exercise_multiple_choice') {
+    const question = content.question || '';
+    const chineseWords = extractChineseWords(question);
+    
+    if (chineseWords.length > 0) {
+      // Try to find vocab for the Chinese word in the question
+      const mainWord = chineseWords[0]; // Usually the first Chinese word is the target
+      const vocab = vocabLookup.get(mainWord);
+      
+      if (vocab) {
+        content.questionPinyin = vocab.pinyin;
+        if (vocab.audioUrl) {
+          content.questionAudioUrl = vocab.audioUrl;
+        } else {
+          warnings.push(`[${lessonTitle}] MCQ: No audio for "${mainWord}" in question "${question}"`);
+        }
+      } else {
+        errors.push(`[${lessonTitle}] MCQ: Word "${mainWord}" not found in vocabulary. Question: "${question}"`);
+      }
+    }
+
+    // Enrich options that are Chinese words
+    if (content.options && Array.isArray(content.options)) {
+      for (const opt of content.options) {
+        const optText = typeof opt === 'string' ? opt : opt.text;
+        if (optText && extractChineseWords(optText).length > 0) {
+          const vocab = vocabLookup.get(optText);
+          if (vocab) {
+            if (typeof opt === 'object') {
+              opt.pinyin = vocab.pinyin;
+              if (vocab.audioUrl) {
+                opt.audioUrl = vocab.audioUrl;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // PATTERN BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'pattern' && content.examples) {
+    for (const example of content.examples) {
+      if (example.hanzi && !example.audioUrl) {
+        // Try to find audio for example sentences
+        const vocab = vocabLookup.get(example.hanzi);
+        if (vocab?.audioUrl) {
+          example.audioUrl = vocab.audioUrl;
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // DIALOGUE BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'dialogue' && content.exchanges) {
+    for (const exchange of content.exchanges) {
+      if (exchange.text && !exchange.audioUrl) {
+        // Dialogues typically need sentence-level audio, not word-level
+        // Just flag if missing
+        warnings.push(`[${lessonTitle}] Dialogue: No audio for "${exchange.text.substring(0, 30)}..."`);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // READING_PASSAGE BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'reading_passage' && content.paragraphs) {
+    for (const para of content.paragraphs) {
+      if (para.hanzi && !para.audioUrl) {
+        warnings.push(`[${lessonTitle}] Reading: No audio for paragraph "${para.hanzi.substring(0, 30)}..."`);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // READING_COMPREHENSION BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'reading_comprehension' && content.questions) {
+    for (const q of content.questions) {
+      if (q.choices) {
+        for (const choice of q.choices) {
+          const choiceText = choice.text;
+          if (choiceText && extractChineseWords(choiceText).length > 0) {
+            // Extract just the Chinese part if it's like "老师 (teacher)"
+            const chineseMatch = choiceText.match(/^([\u4e00-\u9fff]+)/);
+            if (chineseMatch) {
+              const chineseWord = chineseMatch[1];
+              const vocab = vocabLookup.get(chineseWord);
+              if (vocab) {
+                choice.pinyin = vocab.pinyin;
+                if (vocab.audioUrl) {
+                  choice.audioUrl = vocab.audioUrl;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // HERO_HANZI BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'hero_hanzi') {
+    const hanzi = content.hanzi;
+    if (hanzi && !content.audioUrl) {
+      const vocab = vocabLookup.get(hanzi);
+      if (vocab?.audioUrl) {
+        content.audioUrl = vocab.audioUrl;
+      } else {
+        warnings.push(`[${lessonTitle}] Hero: No audio for "${hanzi}"`);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // SPEECH_PRACTICE_V2 BLOCK
+  // ─────────────────────────────────────────────────────────────────
+  if (blockType === 'speech_practice_v2') {
+    const text = content.text;
+    if (text && !content.audioUrl) {
+      const vocab = vocabLookup.get(text);
+      if (vocab?.audioUrl) {
+        content.audioUrl = vocab.audioUrl;
+      } else {
+        warnings.push(`[${lessonTitle}] Speech Practice: No audio for "${text}"`);
+      }
+    }
+  }
+
+  return { enrichedContent: content, errors, warnings };
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // BUNDLE GENERATOR
 // ═══════════════════════════════════════════════════════════════════
 
@@ -252,9 +454,42 @@ export class BundleGenerator {
         }
       }
 
-      // 6. Build bundle lessons
+      // 6. Build vocabulary lookup for enrichment
+      const vocabLookup = buildVocabLookup(levelVocab);
+      
+      logWithContext('info', 'bundle.vocab_lookup_built', {
+        requestId: this.requestId,
+        meta: { hskLevel, vocabCount: vocabLookup.size },
+      });
+
+      // 7. Build bundle lessons with block enrichment
+      const enrichmentErrors: string[] = [];
+      const enrichmentWarnings: string[] = [];
+      
       const bundleLessons: BundleLesson[] = levelLessons.map(lesson => {
         const lessonBlocks = blocksByLesson.get(lesson.id) || [];
+        
+        // Enrich each block with vocab data
+        const enrichedBlocks = lessonBlocks.map(b => {
+          const rawContent = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+          
+          const enrichResult = enrichBlock(
+            { type: b.type, content: rawContent },
+            vocabLookup,
+            lesson.title
+          );
+          
+          // Collect errors and warnings
+          enrichmentErrors.push(...enrichResult.errors);
+          enrichmentWarnings.push(...enrichResult.warnings);
+          
+          return {
+            type: b.type,
+            order: b.orderIndex,
+            content: enrichResult.enrichedContent,
+          };
+        });
+        
         return {
           id: lesson.id,
           lessonNumber: lesson.lessonNumber,
@@ -267,15 +502,49 @@ export class BundleGenerator {
           grammarPoints: lesson.grammarPoints as string[] | null,
           tags: lesson.tags as string[] | null,
           targetVocabulary: (lesson.targetVocabulary as string[]) || [],
-          blocks: lessonBlocks.map(b => ({
-            type: b.type,
-            order: b.orderIndex,
-            content: typeof b.content === 'string' ? JSON.parse(b.content) : b.content,
-          })),
+          blocks: enrichedBlocks,
         };
       });
 
-      // 7. Build bundle units with their lessons
+      // Log enrichment results
+      if (enrichmentErrors.length > 0) {
+        logWithContext('warn', 'bundle.enrichment_errors', {
+          requestId: this.requestId,
+          meta: { 
+            hskLevel, 
+            errorCount: enrichmentErrors.length,
+            errors: enrichmentErrors.slice(0, 10), // Log first 10
+          },
+        });
+        errors.push(...enrichmentErrors);
+      }
+      
+      if (enrichmentWarnings.length > 0) {
+        logWithContext('info', 'bundle.enrichment_warnings', {
+          requestId: this.requestId,
+          meta: { 
+            hskLevel, 
+            warningCount: enrichmentWarnings.length,
+            warnings: enrichmentWarnings.slice(0, 10), // Log first 10
+          },
+        });
+      }
+
+      // 8. Check for critical enrichment errors (MCQ blocks without vocab)
+      const criticalErrors = enrichmentErrors.filter(e => e.includes('MCQ:') && e.includes('not found'));
+      if (criticalErrors.length > 0) {
+        logWithContext('error', 'bundle.critical_enrichment_errors', {
+          requestId: this.requestId,
+          meta: { 
+            hskLevel, 
+            criticalCount: criticalErrors.length,
+            errors: criticalErrors,
+          },
+        });
+        throw new Error(`Bundle blocked: ${criticalErrors.length} MCQ block(s) have missing vocabulary. Fix these before shipping:\n${criticalErrors.join('\n')}`);
+      }
+
+      // 9. Build bundle units with their lessons
       const bundleUnits: BundleUnit[] = levelUnits.map(unit => {
         const unitLessons = bundleLessons.filter(l => {
           const lesson = levelLessons.find(ll => ll.id === l.id);

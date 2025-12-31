@@ -96,23 +96,59 @@ export const createQuestionSchema = z.object({
 
 // --- IMPORT/EXPORT SCHEMAS ---
 
+// Segment/Sentence schema - accepts both names
+const segmentItemSchema = z.object({
+  chinese: z.string().min(1).max(500),
+  pinyin: z.string().max(1000).default(''),
+  english: z.string().max(1000).default(''),
+  speaker: z.string().max(100).optional(),
+  note: z.string().max(500).optional(),
+});
+
+// Practice intro schema (shown before practice blocks)
+const practiceIntroSchema = z.object({
+  enabled: z.boolean().default(true),
+  title: z.string().max(100).optional(),
+  message: z.string().max(200).optional(),
+  skipLabel: z.string().max(50).optional(),
+  startLabel: z.string().max(50).optional(),
+}).optional();
+
+// Main import schema - accepts both 'segments' and 'sentences' field names
 export const storyImportSchema = z.object({
   title: z.string().min(1).max(200),
+  titleEn: z.string().max(200).optional(), // English title (content-planner format)
   subtitle: z.string().max(200).optional(),
   author: z.string().max(100).optional(),
   description: z.string().max(2000).optional(),
   topic: z.string().max(100).optional(),
   hskLevel: z.number().int().min(1).max(9),
   difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
+  // Story type: 'text' for narration, 'dialogue' for conversations with speakers
+  // If not specified, auto-detected from presence of 'speaker' fields
+  storyType: z.enum(['text', 'dialogue']).optional(),
   pauseBetweenSegmentsMs: z.number().int().min(0).max(2000).default(500),
   estimatedMinutes: z.number().int().min(1).max(120).optional(),
-  segments: z.array(z.object({
-    chinese: z.string().min(1).max(500),
-    pinyin: z.string().max(1000).default(''),
-    english: z.string().max(1000).default(''),
-  })).min(1, 'At least one segment required'),
+  accessTier: z.enum(['free', 'premium']).default('free'),
+  tags: z.array(z.string()).optional(),
+  // Accept EITHER 'segments' OR 'sentences' (content-planner uses 'sentences')
+  segments: z.array(segmentItemSchema).optional(),
+  sentences: z.array(segmentItemSchema).optional(),
+  // Series assignment
+  seriesId: z.string().optional(),
+  seriesOrder: z.number().int().optional(),
+  // Practice intro prompt
+  practiceIntro: practiceIntroSchema,
   practiceBlocks: z.array(z.any()).default([]),
-});
+}).refine(
+  (data) => (data.segments && data.segments.length > 0) || (data.sentences && data.sentences.length > 0),
+  { message: 'At least one segment/sentence required (use either "segments" or "sentences" field)' }
+).transform((data) => ({
+  ...data,
+  // Normalize: always use 'segments' internally
+  segments: data.segments || data.sentences || [],
+  sentences: undefined, // Remove the duplicate
+}));
 
 // --- AI SCHEMAS ---
 

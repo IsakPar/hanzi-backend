@@ -29,6 +29,9 @@ const createSeriesSchema = z.object({
   icon: z.string().optional().default('book-open'),
   hskLevel: z.number().int().min(1).max(9).optional(),
   isPublished: z.boolean().optional().default(false),
+  accessTier: z.enum(['free', 'premium']).optional().default('free'),
+  tags: z.array(z.string()).optional(),
+  metadata: z.record(z.unknown()).optional(), // Extended metadata (characters, parts, etc.)
 });
 
 const updateSeriesSchema = createSeriesSchema.partial();
@@ -137,6 +140,9 @@ app.post('/', zValidator('json', createSeriesSchema), async (c) => {
     hskLevel: data.hskLevel || null,
     orderIndex: (maxOrder?.maxOrder || 0) + 1,
     isPublished: data.isPublished,
+    accessTier: data.accessTier || 'free',
+    tags: data.tags ? JSON.stringify(data.tags) : null,
+    metadata: data.metadata ? JSON.stringify(data.metadata) : null,
   };
 
   await db.insert(storySeries).values(newSeries);
@@ -172,6 +178,9 @@ app.put('/:id', zValidator('json', updateSeriesSchema), async (c) => {
   if (data.icon !== undefined) updates.icon = data.icon;
   if (data.hskLevel !== undefined) updates.hskLevel = data.hskLevel;
   if (data.isPublished !== undefined) updates.isPublished = data.isPublished;
+  if (data.accessTier !== undefined) updates.accessTier = data.accessTier;
+  if (data.tags !== undefined) updates.tags = JSON.stringify(data.tags);
+  if (data.metadata !== undefined) updates.metadata = JSON.stringify(data.metadata);
 
   await db
     .update(storySeries)

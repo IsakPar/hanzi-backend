@@ -50,18 +50,29 @@ app.post('/import', zValidator('json', storyImportSchema, (result, c) => {
       meta: { title: data.title, hskLevel: data.hskLevel },
     });
     
+    // Story type: use explicit value if provided, otherwise auto-detect from speakers
+    const hasDialogue = data.segments.some((s: any) => s.speaker);
+    const storyType = data.storyType || (hasDialogue ? 'dialogue' : 'text');
+    
     let story;
     try {
       story = await stories.createStory({
         title: data.title,
-        subtitle: data.subtitle,
+        subtitle: data.subtitle || data.titleEn, // Use titleEn as subtitle fallback
         author: data.author,
         description: data.description,
         topic: data.topic,
         hskLevel: data.hskLevel,
         difficulty: data.difficulty,
         estimatedMinutes: data.estimatedMinutes,
-        practiceBlocks: data.practiceBlocks,
+        accessTier: data.accessTier,
+        storyType, // Auto-detected: 'text' or 'dialogue'
+        // Store practiceIntro with practiceBlocks
+        practiceBlocks: data.practiceIntro 
+          ? [{ type: '_practice_intro', content: data.practiceIntro }, ...data.practiceBlocks]
+          : data.practiceBlocks,
+        seriesId: data.seriesId,
+        seriesOrder: data.seriesOrder,
       });
     } catch (storyErr) {
       logWithContext('error', 'stories.import_create_failed', {
@@ -97,6 +108,7 @@ app.post('/import', zValidator('json', storyImportSchema, (result, c) => {
           chinese: segment.chinese,
           pinyin: segment.pinyin,
           english: segment.english,
+          speaker: segment.speaker, // Pass speaker for dialogue stories
         });
         segmentsCreated++;
       } catch (segErr) {
@@ -183,6 +195,10 @@ app.put('/:id/import', zValidator('json', storyImportSchema, (result, c) => {
       return c.json({ error: 'Story not found' }, 404);
     }
 
+    // Story type: use explicit value if provided, otherwise auto-detect from speakers
+    const hasDialogue = data.segments.some((s: any) => s.speaker);
+    const storyType = data.storyType || (hasDialogue ? 'dialogue' : 'text');
+
     // Update story metadata
     await stories.updateStory(id, {
       title: data.title,
@@ -193,15 +209,17 @@ app.put('/:id/import', zValidator('json', storyImportSchema, (result, c) => {
       hskLevel: data.hskLevel,
       difficulty: data.difficulty,
       estimatedMinutes: data.estimatedMinutes,
+      storyType, // Auto-detected
       practiceBlocks: data.practiceBlocks,
       pauseBetweenSegmentsMs: data.pauseBetweenSegmentsMs,
     } as any);
 
     // Replace all segments using bulk save
-    const segmentsForBulk = data.segments.map((seg, idx) => ({
+    const segmentsForBulk = data.segments.map((seg: any, idx: number) => ({
       chinese: seg.chinese,
       pinyin: seg.pinyin,
       english: seg.english,
+      speaker: seg.speaker || null,
       orderIndex: idx,
     }));
 

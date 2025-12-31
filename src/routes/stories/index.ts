@@ -34,13 +34,43 @@ const app = new Hono<AppEnv>();
 // Apply rate limiting
 app.use('/*', apiRateLimit);
 
-// All stories endpoints require admin auth
+// PUBLIC: Template endpoint (no auth needed - static content)
+app.get('/template', (c) => {
+  return c.json({
+    title: "故事标题",
+    titleEn: "Story Title",
+    subtitle: "A short tagline",
+    description: "A brief description of the story.",
+    author: "Your Name",
+    topic: "daily-life",
+    hskLevel: 1,
+    difficulty: "easy",
+    storyType: "dialogue",
+    estimatedMinutes: 3,
+    accessTier: "free",
+    tags: ["conversation", "beginner"],
+    sentences: [
+      { chinese: "你好！", pinyin: "nǐ hǎo!", english: "Hello!", speaker: "A" },
+      { chinese: "你好！", pinyin: "nǐ hǎo!", english: "Hello!", speaker: "B" }
+    ],
+    practiceIntro: {
+      enabled: true,
+      title: "Practice Time! 📝",
+      message: "Want to test your understanding?",
+      skipLabel: "Skip",
+      startLabel: "Let's go!"
+    },
+    practiceBlocks: []
+  });
+});
+
+// All other stories endpoints require admin auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
 // Mount sub-routers
 // Order matters: more specific routes first
 
-// Template must be before /:id routes
+// Export routes (/:id/export)
 app.route('/', storiesExport);
 
 // Import routes (POST /import must be before /:id)

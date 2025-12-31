@@ -105,5 +105,54 @@ app.post('/:id/sentences/:sentenceId/audio', async (c) => {
   }
 });
 
+/**
+ * DELETE /stories/:id/sentences/:sentenceId/audio
+ * Delete audio for a sentence
+ */
+app.delete('/:id/sentences/:sentenceId/audio', async (c) => {
+  const storyId = c.req.param('id');
+  const sentenceId = c.req.param('sentenceId');
+  
+  try {
+    const { stories } = getServices(c.env);
+    
+    // Get the sentence to find the audio R2 key
+    const sentence = await stories.getSentence(sentenceId);
+    
+    if (!sentence) {
+      return c.json({ error: 'Sentence not found' }, 404);
+    }
+
+    // Delete from R2 if there's an audio file
+    if (sentence.audioR2Key) {
+      try {
+        await c.env.CONTENT_BUCKET.delete(sentence.audioR2Key);
+      } catch (r2Err) {
+        // Log but don't fail - the file might not exist
+        logWithContext('warn', 'stories.audio.r2_delete_failed', {
+          requestId: c.get('requestId'),
+          meta: { storyId, sentenceId, r2Key: sentence.audioR2Key, error: (r2Err as Error).message },
+        });
+      }
+    }
+
+    // Clear audio fields on the sentence
+    await stories.clearSentenceAudio(sentenceId);
+
+    logWithContext('info', 'stories.audio.deleted', {
+      requestId: c.get('requestId'),
+      meta: { storyId, sentenceId },
+    });
+
+    return c.json({ success: true });
+  } catch (err) {
+    logWithContext('error', 'stories.audio.delete_failed', {
+      requestId: c.get('requestId'),
+      meta: { storyId, sentenceId, error: (err as Error).message },
+    });
+    return c.json({ error: 'Failed to delete audio' }, 500);
+  }
+});
+
 export default app;
 

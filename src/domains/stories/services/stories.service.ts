@@ -52,6 +52,10 @@ export class StoriesService {
       hskLevel: params.hskLevel,
       difficulty: params.difficulty || 'medium',
       estimatedMinutes: params.estimatedMinutes,
+      accessTier: params.accessTier || 'free',
+      seriesId: params.seriesId,
+      seriesOrder: params.seriesOrder,
+      storyType: params.storyType || 'text',
       practiceBlocks: params.practiceBlocks ? JSON.stringify(params.practiceBlocks) : null,
       isPublished: false,
       createdAt: now,
@@ -106,6 +110,7 @@ export class StoriesService {
     if (params.hskLevel !== undefined) updates.hskLevel = params.hskLevel;
     if (params.difficulty !== undefined) updates.difficulty = params.difficulty;
     if (params.estimatedMinutes !== undefined) updates.estimatedMinutes = params.estimatedMinutes;
+    if (params.storyType !== undefined) updates.storyType = params.storyType;
 
     // Handle JSON serialization for practiceBlocks
     if (params.practiceBlocks !== undefined) {
@@ -204,6 +209,7 @@ export class StoriesService {
       chinese: params.chinese,
       pinyin: params.pinyin,
       english: params.english,
+      speaker: params.speaker || null,
       audioR2Key: params.audioR2Key,
       createdAt: new Date(),
     });
@@ -254,6 +260,7 @@ export class StoriesService {
       chinese: string;
       pinyin: string;
       english: string;
+      speaker?: string | null;
       orderIndex: number;
       audioR2Key?: string;
     }>
@@ -286,6 +293,12 @@ export class StoriesService {
           orderIndex: segment.orderIndex,
           audioR2Key: segment.audioR2Key,
         });
+        // Update speaker separately if provided
+        if (segment.speaker !== undefined) {
+          await this.db.update(storySentences)
+            .set({ speaker: segment.speaker })
+            .where(eq(storySentences.id, segment.id));
+        }
         updated++;
       } else {
         // Create new
@@ -297,6 +310,7 @@ export class StoriesService {
           chinese: segment.chinese,
           pinyin: segment.pinyin,
           english: segment.english,
+          speaker: segment.speaker || null,
           audioR2Key: segment.audioR2Key,
           createdAt: new Date(),
         });
@@ -422,6 +436,22 @@ export class StoriesService {
     await this.db
       .update(storySentences)
       .set({ audioR2Key: r2Key })
+      .where(eq(storySentences.id, sentenceId));
+  }
+
+  async getSentence(sentenceId: string): Promise<StorySentence | null> {
+    const result = await this.db
+      .select()
+      .from(storySentences)
+      .where(eq(storySentences.id, sentenceId))
+      .get();
+    return result || null;
+  }
+
+  async clearSentenceAudio(sentenceId: string): Promise<void> {
+    await this.db
+      .update(storySentences)
+      .set({ audioR2Key: null, audioDurationMs: null })
       .where(eq(storySentences.id, sentenceId));
   }
 }

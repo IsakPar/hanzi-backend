@@ -16,6 +16,7 @@ export interface Story {
   estimatedMinutes: number | null;
   coverImageR2Key: string | null;
   accessTier: 'free' | 'premium' | null;
+  storyType: 'text' | 'dialogue' | null;
   practiceBlocks: unknown; // Post-story practice exercises (JSON from database)
   isPublished: boolean | null;
   publishedAt: Date | null;
@@ -30,6 +31,7 @@ export interface StorySentence {
   chinese: string;
   pinyin: string;
   english: string;
+  speaker: string | null;
   audioR2Key: string | null;
   createdAt: Date | null;
 }
@@ -68,6 +70,10 @@ export interface CreateStoryParams {
   hskLevel: number;
   difficulty?: 'easy' | 'medium' | 'hard';
   estimatedMinutes?: number;
+  accessTier?: 'free' | 'premium';
+  seriesId?: string;
+  seriesOrder?: number;
+  storyType?: 'text' | 'dialogue';
   practiceBlocks?: ContentBlock[];
 }
 
@@ -82,6 +88,7 @@ export interface UpdateStoryParams {
   difficulty?: 'easy' | 'medium' | 'hard';
   estimatedMinutes?: number;
   coverImageR2Key?: string;
+  storyType?: 'text' | 'dialogue';
   isPublished?: boolean;
   practiceBlocks?: ContentBlock[];
 }
@@ -90,6 +97,7 @@ export interface CreateSentenceParams {
   chinese: string;
   pinyin: string;
   english: string;
+  speaker?: string;
   audioR2Key?: string;
 }
 

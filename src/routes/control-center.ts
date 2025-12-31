@@ -483,6 +483,21 @@ app.get('/preview-release/:hskLevel', async (c) => {
     }
   }
 
+  // Also check for live lessons that have been updated since the last release
+  // This catches cases where someone edited a live lesson but contentStatus wasn't changed
+  const releaseTime = previousRelease?.createdAt ? new Date(previousRelease.createdAt) : null;
+  const liveLessonsWithChanges: typeof allLessons = [];
+  
+  if (releaseTime) {
+    for (const lesson of liveLessons) {
+      const lessonUpdatedAt = lesson.updatedAt ? new Date(lesson.updatedAt) : null;
+      if (lessonUpdatedAt && lessonUpdatedAt > releaseTime) {
+        // This live lesson was updated after the last release
+        liveLessonsWithChanges.push(lesson);
+      }
+    }
+  }
+
   // Lessons that were live but aren't in pending = would be removed if we ship ONLY pending
   // But typically we want to keep live lessons, so we show them as "staying"
   const stayingLessons = liveLessons.filter(l => 
@@ -501,8 +516,8 @@ app.get('/preview-release/:hskLevel', async (c) => {
   if (newLessons.length > 0) {
     // New lessons = minor bump
     suggestedVersion = `${major}.${minor + 1}.0`;
-  } else if (updatedLessons.length > 0) {
-    // Updates = patch bump
+  } else if (updatedLessons.length > 0 || liveLessonsWithChanges.length > 0) {
+    // Updates or live lessons with changes = patch bump
     suggestedVersion = `${major}.${minor}.${patch + 1}`;
   } else {
     suggestedVersion = currentVersion;
@@ -549,6 +564,13 @@ app.get('/preview-release/:hskLevel', async (c) => {
         title: l.title,
         lessonNumber: l.lessonNumber,
       })),
+      // Live lessons that were modified since last release (need re-ship)
+      liveLessonsWithChanges: liveLessonsWithChanges.map(l => ({
+        id: l.id,
+        title: l.title,
+        lessonNumber: l.lessonNumber,
+        updatedAt: l.updatedAt,
+      })),
     },
     vocabulary: {
       total: vocabList.length,
@@ -574,14 +596,15 @@ app.get('/preview-release/:hskLevel', async (c) => {
     },
     suggestedVersion,
     previewHash,
-    // Allow shipping if there are lesson changes OR if there are live lessons to re-ship
-    hasChanges: newLessons.length > 0 || updatedLessons.length > 0,
+    // Allow shipping if there are lesson changes OR if there are live lessons that were modified
+    hasChanges: newLessons.length > 0 || updatedLessons.length > 0 || liveLessonsWithChanges.length > 0,
     canForceShip: liveLessons.length > 0, // Allow re-shipping live lessons
     summary: {
       totalNew: newLessons.length,
       totalUpdated: updatedLessons.length,
       totalStaying: stayingLessons.length + unchangedLessons.length,
       totalLive: liveLessons.length,
+      totalLiveWithChanges: liveLessonsWithChanges.length,
     },
   });
 });
