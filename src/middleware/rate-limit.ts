@@ -137,6 +137,17 @@ export const adminRateLimit = rateLimit({
 });
 
 /**
+ * R2 Upload endpoints (admin only) - very high limit
+ * 500 requests per minute - R2 uploads are cheap, no external API cost
+ * Used for saving audio, images to R2
+ */
+export const r2UploadRateLimit = rateLimit({
+  max: 500,
+  windowSeconds: 60,
+  keyPrefix: 'r2-upload',
+});
+
+/**
  * Standard API endpoints - generous
  * 200 requests per minute - normal usage
  */

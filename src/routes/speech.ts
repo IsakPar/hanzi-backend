@@ -6,18 +6,22 @@ import { AnalyticsService } from '../services/analytics';
 import { AIUsageLogger } from '../services/ai-usage-logger';
 import type { AppEnv } from '../types/app';
 import { logWithContext } from '../utils/logger';
-import { aiRateLimit, adminRateLimit } from '../middleware/rate-limit';
+import { aiRateLimit, r2UploadRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono<AppEnv>();
 
 // All speech endpoints require admin auth (ElevenLabs costs $$)
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin'] }));
 
-// Rate limiting: 
-// - /save endpoint uses admin rate limit (100/min) since it's just R2 upload
-// - All other endpoints use AI rate limit (20/min) since they call external APIs
-app.use('/save', adminRateLimit);
-app.use('/*', aiRateLimit);
+// Rate limiting:
+// - /save* endpoints: R2 upload only (500/min) - no external API cost
+// - Other endpoints: AI rate limit (20/min) - calls ElevenLabs/Azure
+app.use('/save', r2UploadRateLimit);
+app.use('/save-for-lesson', r2UploadRateLimit);
+app.use('/generate', aiRateLimit);
+app.use('/generate-for-lesson', aiRateLimit);
+app.use('/synthesize-azure', aiRateLimit);
+app.use('/voices', aiRateLimit);
 
 // ═══════════════════════════════════════════════════════════
 // VOICE CONFIGURATION

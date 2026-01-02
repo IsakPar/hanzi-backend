@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
-import { lessons, lessonBlocks, waitlist, tierLimits, vocabulary, stories } from '../schema';
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { lessons, lessonBlocks, waitlist, tierLimits, vocabulary, stories, storySentences } from '../schema';
+import { eq, and, desc, asc, sql, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
@@ -1858,6 +1858,210 @@ app.get('/ai-usage/tutor-summary', async (c) => {
     });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// AUDIO CLEANUP ENDPOINTS (for TTS migration to manual upload)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * GET /admin/audio/audit
+ * List all audio references in database and count R2 files
+ */
+app.get('/audio/audit', async (c) => {
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+  
+  try {
+    // Count vocabulary with audio
+    const vocabWithWordAudio = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(isNotNull(vocabulary.wordAudioR2Key));
+    
+    const vocabWithExampleAudio = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(isNotNull(vocabulary.exampleAudioR2Key));
+    
+    // Count story sentences with audio
+    const storySentencesWithAudio = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(storySentences)
+      .where(isNotNull(storySentences.audioR2Key));
+    
+    // List R2 prefixes to check
+    const r2Prefixes = [
+      'vocab/',
+      'lessons/audio/',
+      'stories/segments/',
+      'audio/', // New upload path
+    ];
+    
+    // Count R2 objects (approximate - R2 list is paginated)
+    const r2Counts: Record<string, number> = {};
+    for (const prefix of r2Prefixes) {
+      try {
+        const listed = await c.env.CONTENT_BUCKET.list({ prefix, limit: 1000 });
+        r2Counts[prefix] = listed.objects.length;
+        if (listed.truncated) {
+          r2Counts[prefix + ' (truncated)'] = true as unknown as number;
+        }
+      } catch {
+        r2Counts[prefix] = -1; // Error
+      }
+    }
+    
+    logWithContext('info', 'admin.audio_audit', { requestId, meta: { r2Counts } });
+    
+    return c.json({
+      database: {
+        vocabularyWithWordAudio: vocabWithWordAudio[0]?.count || 0,
+        vocabularyWithExampleAudio: vocabWithExampleAudio[0]?.count || 0,
+        storySentencesWithAudio: storySentencesWithAudio[0]?.count || 0,
+      },
+      r2: r2Counts,
+      message: 'Audit complete. Use POST /admin/audio/cleanup to remove all audio.',
+    });
+  } catch (err) {
+    logWithContext('error', 'admin.audio_audit_failed', { 
+      requestId, 
+      meta: { error: (err as Error).message } 
+    });
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+/**
+ * POST /admin/audio/cleanup
+ * Remove all audio references from database and delete R2 files
+ * WARNING: This is destructive and cannot be undone!
+ */
+app.post('/audio/cleanup', async (c) => {
+  const db = drizzle(c.env.DB);
+  const requestId = c.get('requestId');
+  const user = c.get('user');
+  
+  // Require explicit confirmation
+  const body = await c.req.json().catch(() => ({}));
+  if (body.confirm !== 'DELETE_ALL_AUDIO') {
+    return c.json({ 
+      error: 'Confirmation required',
+      hint: 'Send { "confirm": "DELETE_ALL_AUDIO" } to proceed',
+    }, 400);
+  }
+  
+  logWithContext('warn', 'admin.audio_cleanup_started', { 
+    requestId, 
+    meta: { userId: user?.id } 
+  });
+  
+  const results = {
+    database: {
+      vocabularyWordAudioCleared: 0,
+      vocabularyExampleAudioCleared: 0,
+      storySentencesAudioCleared: 0,
+    },
+    r2: {
+      deletedCount: 0,
+      errors: [] as string[],
+    },
+  };
+  
+  try {
+    // 1. Count and clear vocabulary word audio
+    const vocabWordCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(isNotNull(vocabulary.wordAudioR2Key));
+    results.database.vocabularyWordAudioCleared = vocabWordCount[0]?.count || 0;
+    
+    await db
+      .update(vocabulary)
+      .set({ 
+        wordAudioR2Key: null, 
+        wordAudioUpdatedAt: null 
+      })
+      .where(isNotNull(vocabulary.wordAudioR2Key));
+    
+    // 2. Count and clear vocabulary example audio
+    const vocabExampleCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(vocabulary)
+      .where(isNotNull(vocabulary.exampleAudioR2Key));
+    results.database.vocabularyExampleAudioCleared = vocabExampleCount[0]?.count || 0;
+    
+    await db
+      .update(vocabulary)
+      .set({ 
+        exampleAudioR2Key: null, 
+        exampleAudioUpdatedAt: null 
+      })
+      .where(isNotNull(vocabulary.exampleAudioR2Key));
+    
+    // 3. Count and clear story sentences audio
+    const storyCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(storySentences)
+      .where(isNotNull(storySentences.audioR2Key));
+    results.database.storySentencesAudioCleared = storyCount[0]?.count || 0;
+    
+    await db
+      .update(storySentences)
+      .set({ audioR2Key: null })
+      .where(isNotNull(storySentences.audioR2Key));
+    
+    // 4. Delete R2 files
+    const prefixes = ['vocab/', 'lessons/audio/', 'stories/segments/'];
+    
+    for (const prefix of prefixes) {
+      let cursor: string | undefined;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const listed = await c.env.CONTENT_BUCKET.list({ 
+          prefix, 
+          limit: 500,
+          cursor,
+        });
+        
+        if (listed.objects.length > 0) {
+          // Delete in batches
+          for (const obj of listed.objects) {
+            try {
+              await c.env.CONTENT_BUCKET.delete(obj.key);
+              results.r2.deletedCount++;
+            } catch (err) {
+              results.r2.errors.push(`Failed to delete ${obj.key}: ${(err as Error).message}`);
+            }
+          }
+        }
+        
+        hasMore = listed.truncated;
+        cursor = listed.truncated ? listed.cursor : undefined;
+      }
+    }
+    
+    logWithContext('info', 'admin.audio_cleanup_complete', { 
+      requestId, 
+      meta: results 
+    });
+    
+    return c.json({
+      success: true,
+      message: 'All TTS audio has been removed',
+      results,
+    });
+  } catch (err) {
+    logWithContext('error', 'admin.audio_cleanup_failed', { 
+      requestId, 
+      meta: { error: (err as Error).message, partialResults: results } 
+    });
+    return c.json({ 
+      error: (err as Error).message,
+      partialResults: results,
+    }, 500);
   }
 });
 
