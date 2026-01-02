@@ -12,26 +12,14 @@ import { generateExampleSentence as generateExampleSentenceAI, translateWord as 
 import { AIUsageLogger } from '../services/ai-usage-logger';
 
 // ═══════════════════════════════════════════════════════════
-// ELEVENLABS CONFIGURATION
+// CDN CONFIGURATION
 // ═══════════════════════════════════════════════════════════
-
-const VOICES: Record<string, { id: string; name: string }> = {
-  'chinese-female-1': { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Mei Lin' },
-  'chinese-female-2': { id: 'jBpfuIE2acCO8z3wKNLl', name: 'Xiao Mei' },
-  'chinese-male-1': { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Wei Chen' },
-  'chinese-male-2': { id: 'pqHfZKP75CvOlQylNhV4', name: 'Zhang Wei' },
-};
-
-const DEFAULT_VOICE = 'chinese-female-1';
-const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
-
-function getElevenLabsApiKey(env: AppEnv['Bindings']): string | null {
-  return (env as Record<string, unknown>).ELEVENLABS_API_KEY as string || null;
-}
 
 function getCdnBaseUrl(env: AppEnv['Bindings']): string {
   return (env as Record<string, unknown>).CDN_BASE_URL as string || 'https://content.polymasterlabs.com';
 }
+
+// TTS API removed - using manual audio upload instead (see /v1/audio/upload)
 
 /**
  * Escape special characters for LIKE queries to prevent injection
@@ -876,13 +864,9 @@ app.post('/admin/:id/example-audio', async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// ELEVENLABS AUDIO GENERATION ENDPOINTS
+// VOCABULARY AUDIO SAVE ENDPOINTS (Manual upload flow)
+// TTS preview endpoints removed - using manual audio upload instead
 // ═══════════════════════════════════════════════════════════
-
-const previewAudioSchema = z.object({
-  voice: z.string().optional().default(DEFAULT_VOICE),
-  speed: z.number().min(0.5).max(1.0).optional().default(0.8),
-});
 
 const saveAudioSchema = z.object({
   audioBase64: z.string().min(1),
@@ -890,171 +874,8 @@ const saveAudioSchema = z.object({
 });
 
 /**
- * POST /vocabulary/admin/:id/preview-word-audio - Generate preview audio for word (ElevenLabs)
- */
-app.post('/admin/:id/preview-word-audio', zValidator('json', previewAudioSchema), async (c) => {
-  const id = c.req.param('id');
-  const { voice, speed } = c.req.valid('json');
-  const db = drizzle(c.env.DB);
-  const apiKey = getElevenLabsApiKey(c.env);
-  
-  if (!apiKey) {
-    return c.json({ error: 'ElevenLabs API key not configured' }, 500);
-  }
-
-  try {
-    // Get the vocabulary entry to get the hanzi
-    const entry = await db.select().from(vocabulary).where(eq(vocabulary.id, id)).get();
-    
-    if (!entry) {
-      return c.json({ error: 'Vocabulary not found' }, 404);
-    }
-
-    const text = entry.hanzi;
-    const voiceConfig = VOICES[voice] || VOICES[DEFAULT_VOICE];
-
-    // Call ElevenLabs API
-    const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceConfig.id}`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          use_speaker_boost: true,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logWithContext('error', 'vocabulary.elevenlabs_error', {
-        requestId: c.get('requestId'),
-        meta: { status: response.status, error: errorText },
-      });
-      return c.json({ error: 'Audio generation failed' }, 500);
-    }
-
-    // Convert to base64
-    const audioBuffer = await response.arrayBuffer();
-    const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
-
-    // Log ElevenLabs usage for cost tracking
-    const aiLogger = new AIUsageLogger(c.env.DB);
-    await aiLogger.logElevenLabs({
-      characters: text.length,
-      success: true,
-      voiceId: voiceConfig.id,
-    });
-
-    return c.json({
-      success: true,
-      audioBase64,
-      text,
-      charactersUsed: text.length,
-    });
-  } catch (err) {
-    logWithContext('error', 'vocabulary.preview_word_audio_failed', {
-      requestId: c.get('requestId'),
-      meta: { error: (err as Error).message },
-    });
-    return c.json({ error: 'Failed to generate audio preview' }, 500);
-  }
-});
-
-/**
- * POST /vocabulary/admin/:id/preview-example-audio - Generate preview audio for example sentence
- */
-app.post('/admin/:id/preview-example-audio', zValidator('json', previewAudioSchema), async (c) => {
-  const id = c.req.param('id');
-  const { voice, speed } = c.req.valid('json');
-  const db = drizzle(c.env.DB);
-  const apiKey = getElevenLabsApiKey(c.env);
-  
-  if (!apiKey) {
-    return c.json({ error: 'ElevenLabs API key not configured' }, 500);
-  }
-
-  try {
-    // Get the vocabulary entry to get the example sentence
-    const entry = await db.select().from(vocabulary).where(eq(vocabulary.id, id)).get();
-    
-    if (!entry) {
-      return c.json({ error: 'Vocabulary not found' }, 404);
-    }
-
-    if (!entry.exampleChinese) {
-      return c.json({ error: 'No example sentence for this vocabulary' }, 400);
-    }
-
-    const text = entry.exampleChinese;
-    const voiceConfig = VOICES[voice] || VOICES[DEFAULT_VOICE];
-
-    // Call ElevenLabs API
-    const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceConfig.id}`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          use_speaker_boost: true,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logWithContext('error', 'vocabulary.elevenlabs_error', {
-        requestId: c.get('requestId'),
-        meta: { status: response.status, error: errorText },
-      });
-      return c.json({ error: 'Audio generation failed' }, 500);
-    }
-
-    // Convert to base64
-    const audioBuffer = await response.arrayBuffer();
-    const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
-
-    // Log ElevenLabs usage for cost tracking
-    const aiLogger = new AIUsageLogger(c.env.DB);
-    await aiLogger.logElevenLabs({
-      characters: text.length,
-      success: true,
-      voiceId: voiceConfig.id,
-    });
-
-    return c.json({
-      success: true,
-      audioBase64,
-      text,
-      charactersUsed: text.length,
-    });
-  } catch (err) {
-    logWithContext('error', 'vocabulary.preview_example_audio_failed', {
-      requestId: c.get('requestId'),
-      meta: { error: (err as Error).message },
-    });
-    return c.json({ error: 'Failed to generate audio preview' }, 500);
-  }
-});
-
-/**
- * POST /vocabulary/admin/:id/save-word-audio - Save approved word audio to R2
+ * POST /vocabulary/admin/:id/save-word-audio - Save word audio to R2
+ * Used after manual upload/drag-and-drop
  */
 app.post('/admin/:id/save-word-audio', zValidator('json', saveAudioSchema), async (c) => {
   const id = c.req.param('id');

@@ -508,24 +508,14 @@ app.get('/test-all', jwtAuthMiddleware({ allowRoles: ['admin'] }), async (c) => 
 
   // ===== 4. EXTERNAL API TESTS =====
   
-  // ElevenLabs API
-  const elevenLabsKey = (c.env as Record<string, unknown>).ELEVENLABS_API_KEY as string | undefined;
-  if (elevenLabsKey) {
-    results.push(await testExternal(
-      'ElevenLabs API',
-      'https://api.elevenlabs.io/v1/voices',
-      'GET',
-      { 'xi-api-key': elevenLabsKey }
-    ));
-  } else {
-    results.push({
-      name: 'ElevenLabs API',
-      path: 'ELEVENLABS_API_KEY',
-      method: 'CONFIG',
-      status: 'skip',
-      details: 'Not configured',
-    });
-  }
+  // ElevenLabs API - TTS removed, using manual audio upload instead
+  results.push({
+    name: 'ElevenLabs API',
+    path: 'N/A',
+    method: 'CONFIG',
+    status: 'skip',
+    details: 'TTS removed - using manual audio upload',
+  });
 
   // ===== 5. API KEYS CHECK =====
   

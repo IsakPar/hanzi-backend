@@ -18,7 +18,7 @@ import unitsRouter from './routes/units';
 import waitlistRouter from './routes/waitlist';
 import curriculumDerivedRouter from './routes/curriculum-derived';
 import validatorRouter from './routes/validator';
-import speechRouter from './routes/speech';
+// TTS API removed - using manual audio upload instead (see /v1/audio/upload)
 import lessonCacheRouter from './routes/lesson-cache';
 import audioRouter from './routes/audio';
 import authRouter from './routes/auth';
@@ -147,7 +147,7 @@ app.route('/v1/units', unitsRouter);
 app.route('/v1/waitlist', waitlistRouter);
 app.route('/v1/curriculum', curriculumDerivedRouter);
 app.route('/v1/validator', validatorRouter);
-app.route('/v1/speech', speechRouter);
+// TTS API removed - using manual audio upload instead
 app.route('/v1/audio', audioRouter);
 app.route('/v1/lesson-cache', lessonCacheRouter);
 app.route('/v1/ai-assistant', aiAssistantRouter);
