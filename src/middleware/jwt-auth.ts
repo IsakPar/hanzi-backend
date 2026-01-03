@@ -81,6 +81,53 @@ export const jwtAuthMiddleware = (options?: JWTAuthOptions): MiddlewareHandler<A
 };
 
 /**
+ * Optional JWT auth middleware - sets user context if token provided, but doesn't require it
+ * Use this for endpoints that work for both authenticated and anonymous users
+ */
+export const optionalJwtAuthMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const jwtSecret = c.env.JWT_SECRET || c.env.BETTER_AUTH_SECRET;
+
+  if (!jwtSecret) {
+    // No secret configured, continue without auth
+    await next();
+    return;
+  }
+
+  const authHeader = c.req.header('Authorization');
+  
+  // No auth header - continue anonymously
+  if (!authHeader?.startsWith('Bearer ')) {
+    await next();
+    return;
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+
+  if (!token) {
+    await next();
+    return;
+  }
+
+  try {
+    // Verify and decode the token
+    const tokenUser = await verifyAccessToken(token, jwtSecret);
+
+    // Set user context
+    c.set('user', {
+      id: tokenUser.id,
+      email: tokenUser.email,
+      role: tokenUser.role,
+      tier: tokenUser.tier,
+    });
+  } catch {
+    // Token invalid or expired - continue anonymously
+    // Don't throw, just proceed without user context
+  }
+
+  await next();
+};
+
+/**
  * Require admin role
  */
 export const requireAdmin = jwtAuthMiddleware({ allowRoles: ['admin'] });

@@ -5,6 +5,8 @@
  * - Browse published stories catalog
  * - Download stories for offline listening
  * - Get personalized recommendations via vocab-validator
+ * - Showcase sections (configurable home screen)
+ * - Story events (listen, complete, rate)
  * 
  * No authentication required - stories are public content.
  * Premium access control is handled by RevenueCat on the client.
@@ -13,9 +15,22 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import { drizzle } from 'drizzle-orm/d1';
+import { eq, desc, asc, and, sql, inArray, isNotNull } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import type { AppEnv } from '../types/app';
 import { createStoriesDomain } from '../domains/stories';
 import { logWithContext } from '../utils/logger';
+import { optionalJwtAuthMiddleware } from '../middleware/jwt-auth';
+import { 
+  stories, 
+  storySeries,
+  storyListens, 
+  storyRatings, 
+  storyStats, 
+  storyShowcaseSections,
+  storySentences,
+} from '../schema';
 
 const app = new Hono<AppEnv>();
 
@@ -317,6 +332,560 @@ app.get('/:id/cover', async (c) => {
     return c.json({ error: 'Cover not available' }, 500);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// SHOWCASE SECTIONS (For mobile home screen)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * GET /v1/mobile/stories/showcase
+ * Get all active showcase sections with stories for mobile home screen
+ * Supports optional HSK level filtering
+ */
+app.get('/showcase', async (c) => {
+  const db = drizzle(c.env.DB);
+  const hskFilter = c.req.query('hskLevel') ? parseInt(c.req.query('hskLevel')!) : null;
+
+  logWithContext('info', 'mobile.stories.showcase', {
+    requestId: c.get('requestId'),
+    meta: { hskFilter },
+  });
+
+  // Get all active sections
+  const sections = await db
+    .select()
+    .from(storyShowcaseSections)
+    .where(eq(storyShowcaseSections.isActive, true))
+    .orderBy(asc(storyShowcaseSections.orderIndex));
+
+  // Build response with stories for each section
+  const result = await Promise.all(sections.map(async (section) => {
+    const config = (section.config || {}) as Record<string, unknown>;
+    const limit = (config.limit as number) || 10;
+    let sectionStories: any[] = [];
+
+    // Apply HSK filter if provided
+    const effectiveHskLevel = hskFilter || (config.hskLevel as number);
+
+    switch (section.sectionType) {
+      case 'new_releases': {
+        sectionStories = await db
+          .select({
+            id: stories.id,
+            title: stories.title,
+            subtitle: stories.subtitle,
+            hskLevel: stories.hskLevel,
+            difficulty: stories.difficulty,
+            estimatedMinutes: stories.estimatedMinutes,
+            coverImageR2Key: stories.coverImageR2Key,
+            publishedAt: stories.publishedAt,
+          })
+          .from(stories)
+          .where(eq(stories.isPublished, true))
+          .orderBy(desc(stories.publishedAt))
+          .limit(limit);
+        
+        if (effectiveHskLevel) {
+          sectionStories = sectionStories.filter(s => s.hskLevel === effectiveHskLevel);
+        }
+        break;
+      }
+
+      case 'popular': {
+        const statsQuery = await db
+          .select({
+            storyId: storyStats.storyId,
+            completeCount: storyStats.completeCount,
+            ratingAvg: storyStats.ratingAvg,
+          })
+          .from(storyStats)
+          .orderBy(desc(storyStats.completeCount))
+          .limit(limit * 2);
+
+        if (statsQuery.length > 0) {
+          const storyIds = statsQuery.map(s => s.storyId);
+          const popularStories = await db
+            .select({
+              id: stories.id,
+              title: stories.title,
+              subtitle: stories.subtitle,
+              hskLevel: stories.hskLevel,
+              difficulty: stories.difficulty,
+              estimatedMinutes: stories.estimatedMinutes,
+              coverImageR2Key: stories.coverImageR2Key,
+            })
+            .from(stories)
+            .where(and(
+              eq(stories.isPublished, true),
+              inArray(stories.id, storyIds)
+            ));
+
+          sectionStories = popularStories
+            .map(story => {
+              const stat = statsQuery.find(s => s.storyId === story.id);
+              return {
+                ...story,
+                completionCount: stat?.completeCount || 0,
+                rating: stat?.ratingAvg || 0,
+              };
+            })
+            .filter(s => !effectiveHskLevel || s.hskLevel === effectiveHskLevel)
+            .slice(0, limit);
+        }
+        
+        // Fallback: recent stories
+        if (sectionStories.length === 0) {
+          sectionStories = await db
+            .select({
+              id: stories.id,
+              title: stories.title,
+              subtitle: stories.subtitle,
+              hskLevel: stories.hskLevel,
+              difficulty: stories.difficulty,
+              estimatedMinutes: stories.estimatedMinutes,
+              coverImageR2Key: stories.coverImageR2Key,
+            })
+            .from(stories)
+            .where(eq(stories.isPublished, true))
+            .orderBy(desc(stories.publishedAt))
+            .limit(limit);
+        }
+        break;
+      }
+
+      case 'series': {
+        const seriesData = await db
+          .select({
+            id: storySeries.id,
+            title: storySeries.title,
+            description: storySeries.description,
+            hskLevel: storySeries.hskLevel,
+            coverImageR2Key: storySeries.coverImageR2Key,
+            totalParts: storySeries.totalParts,
+          })
+          .from(storySeries)
+          .where(eq(storySeries.isPublished, true))
+          .orderBy(desc(storySeries.createdAt))
+          .limit(limit);
+
+        sectionStories = effectiveHskLevel 
+          ? seriesData.filter(s => s.hskLevel === effectiveHskLevel)
+          : seriesData;
+        break;
+      }
+
+      case 'by_hsk': {
+        const targetHsk = effectiveHskLevel || (config.hskLevel as number) || 1;
+        sectionStories = await db
+          .select({
+            id: stories.id,
+            title: stories.title,
+            subtitle: stories.subtitle,
+            hskLevel: stories.hskLevel,
+            difficulty: stories.difficulty,
+            estimatedMinutes: stories.estimatedMinutes,
+            coverImageR2Key: stories.coverImageR2Key,
+          })
+          .from(stories)
+          .where(and(
+            eq(stories.isPublished, true),
+            eq(stories.hskLevel, targetHsk)
+          ))
+          .orderBy(desc(stories.publishedAt))
+          .limit(limit);
+        break;
+      }
+
+      case 'curated': {
+        if (section.curatedStoryIds && section.curatedStoryIds.length > 0) {
+          sectionStories = await db
+            .select({
+              id: stories.id,
+              title: stories.title,
+              subtitle: stories.subtitle,
+              hskLevel: stories.hskLevel,
+              difficulty: stories.difficulty,
+              estimatedMinutes: stories.estimatedMinutes,
+              coverImageR2Key: stories.coverImageR2Key,
+            })
+            .from(stories)
+            .where(and(
+              eq(stories.isPublished, true),
+              inArray(stories.id, section.curatedStoryIds)
+            ));
+
+          if (effectiveHskLevel) {
+            sectionStories = sectionStories.filter(s => s.hskLevel === effectiveHskLevel);
+          }
+        }
+        break;
+      }
+    }
+
+    return {
+      id: section.id,
+      title: section.title,
+      subtitle: section.subtitle,
+      icon: section.icon,
+      type: section.sectionType,
+      stories: sectionStories,
+      count: sectionStories.length,
+    };
+  }));
+
+  const nonEmptySections = result.filter(s => s.count > 0);
+
+  return c.json({
+    sections: nonEmptySections,
+    hskFilter,
+    totalSections: nonEmptySections.length,
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// STORY EVENTS (Listen, Complete, Rate)
+// ═══════════════════════════════════════════════════════════════════
+
+const listenSchema = z.object({
+  deviceId: z.string().optional(),
+  source: z.enum(['showcase', 'search', 'series', 'recommendation', 'direct']).optional(),
+});
+
+/**
+ * POST /v1/mobile/stories/:id/listen
+ * Track when user starts listening to a story
+ */
+app.post('/:id/listen', optionalJwtAuthMiddleware, zValidator('json', listenSchema), async (c) => {
+  const db = drizzle(c.env.DB);
+  const storyId = c.req.param('id');
+  const { deviceId, source } = c.req.valid('json');
+  const user = c.get('user');
+
+  // Verify story exists
+  const story = await db
+    .select({ id: stories.id })
+    .from(stories)
+    .where(eq(stories.id, storyId))
+    .limit(1);
+
+  if (story.length === 0) {
+    return c.json({ error: 'Story not found' }, 404);
+  }
+
+  const eventId = nanoid();
+  await db.insert(storyListens).values({
+    id: eventId,
+    storyId,
+    userId: user?.id || null,
+    deviceId: deviceId || null,
+    eventType: 'start',
+    progressPercent: 0,
+    lastSentenceIndex: 0,
+    source: source || 'direct',
+  });
+
+  logWithContext('info', 'mobile.stories.listen', {
+    requestId: c.get('requestId'),
+    meta: { storyId, userId: user?.id, deviceId, source },
+  });
+
+  return c.json({ success: true, eventId });
+});
+
+const completeSchema = z.object({
+  deviceId: z.string().optional(),
+  durationSeconds: z.number().int().min(0).optional(),
+});
+
+/**
+ * POST /v1/mobile/stories/:id/complete
+ * Track when user completes a story
+ */
+app.post('/:id/complete', optionalJwtAuthMiddleware, zValidator('json', completeSchema), async (c) => {
+  const db = drizzle(c.env.DB);
+  const storyId = c.req.param('id');
+  const { deviceId, durationSeconds } = c.req.valid('json');
+  const user = c.get('user');
+
+  const sentenceCount = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(storySentences)
+    .where(eq(storySentences.storyId, storyId));
+
+  const eventId = nanoid();
+  await db.insert(storyListens).values({
+    id: eventId,
+    storyId,
+    userId: user?.id || null,
+    deviceId: deviceId || null,
+    eventType: 'complete',
+    progressPercent: 100,
+    lastSentenceIndex: sentenceCount[0]?.count || 0,
+    durationSeconds: durationSeconds || null,
+  });
+
+  await updateStoryStats(db, storyId);
+
+  logWithContext('info', 'mobile.stories.complete', {
+    requestId: c.get('requestId'),
+    meta: { storyId, userId: user?.id, deviceId, durationSeconds },
+  });
+
+  return c.json({ success: true, eventId });
+});
+
+const rateSchema = z.object({
+  stars: z.number().int().min(1).max(5),
+  feedback: z.string().max(500).optional(),
+  deviceId: z.string().optional(),
+});
+
+/**
+ * POST /v1/mobile/stories/:id/rate
+ * Submit or update rating for a story
+ */
+app.post('/:id/rate', optionalJwtAuthMiddleware, zValidator('json', rateSchema), async (c) => {
+  const db = drizzle(c.env.DB);
+  const storyId = c.req.param('id');
+  const { stars, feedback, deviceId } = c.req.valid('json');
+  const user = c.get('user');
+
+  if (!user?.id && !deviceId) {
+    return c.json({ error: 'Either authenticated user or deviceId required' }, 400);
+  }
+
+  let existingRating: any[] = [];
+  if (user?.id) {
+    existingRating = await db
+      .select()
+      .from(storyRatings)
+      .where(and(
+        eq(storyRatings.storyId, storyId),
+        eq(storyRatings.userId, user.id)
+      ))
+      .limit(1);
+  } else if (deviceId) {
+    existingRating = await db
+      .select()
+      .from(storyRatings)
+      .where(and(
+        eq(storyRatings.storyId, storyId),
+        eq(storyRatings.deviceId, deviceId)
+      ))
+      .limit(1);
+  }
+
+  let ratingId: string;
+  let isUpdate = false;
+
+  if (existingRating.length > 0) {
+    ratingId = existingRating[0].id;
+    isUpdate = true;
+    await db
+      .update(storyRatings)
+      .set({
+        stars,
+        feedback: feedback || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(storyRatings.id, ratingId));
+  } else {
+    ratingId = nanoid();
+    await db.insert(storyRatings).values({
+      id: ratingId,
+      storyId,
+      userId: user?.id || null,
+      deviceId: deviceId || null,
+      stars,
+      feedback: feedback || null,
+    });
+  }
+
+  await updateStoryStats(db, storyId);
+
+  logWithContext('info', 'mobile.stories.rate', {
+    requestId: c.get('requestId'),
+    meta: { storyId, userId: user?.id, stars, isUpdate },
+  });
+
+  return c.json({ 
+    success: true, 
+    ratingId,
+    isUpdate,
+    message: isUpdate ? 'Rating updated' : 'Rating submitted',
+  });
+});
+
+/**
+ * GET /v1/mobile/stories/:id/my-rating
+ * Get current user's rating for a story
+ */
+app.get('/:id/my-rating', optionalJwtAuthMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const storyId = c.req.param('id');
+  const deviceId = c.req.query('deviceId');
+  const user = c.get('user');
+
+  if (!user?.id && !deviceId) {
+    return c.json({ rating: null });
+  }
+
+  let rating: any[] = [];
+  if (user?.id) {
+    rating = await db
+      .select()
+      .from(storyRatings)
+      .where(and(
+        eq(storyRatings.storyId, storyId),
+        eq(storyRatings.userId, user.id)
+      ))
+      .limit(1);
+  } else if (deviceId) {
+    rating = await db
+      .select()
+      .from(storyRatings)
+      .where(and(
+        eq(storyRatings.storyId, storyId),
+        eq(storyRatings.deviceId, deviceId)
+      ))
+      .limit(1);
+  }
+
+  return c.json({
+    rating: rating[0] ? {
+      stars: rating[0].stars,
+      feedback: rating[0].feedback,
+      updatedAt: rating[0].updatedAt,
+    } : null,
+  });
+});
+
+/**
+ * GET /v1/mobile/stories/:id/stats
+ * Get public stats for a story
+ */
+app.get('/:id/stats', async (c) => {
+  const db = drizzle(c.env.DB);
+  const storyId = c.req.param('id');
+
+  const stats = await db
+    .select()
+    .from(storyStats)
+    .where(eq(storyStats.storyId, storyId))
+    .limit(1);
+
+  if (stats.length === 0) {
+    return c.json({
+      listenCount: 0,
+      completeCount: 0,
+      ratingAvg: 0,
+      ratingCount: 0,
+    });
+  }
+
+  return c.json({
+    listenCount: stats[0].listenCount,
+    completeCount: stats[0].completeCount,
+    completionRate: stats[0].completionRate,
+    ratingAvg: Math.round(stats[0].ratingAvg! * 10) / 10,
+    ratingCount: stats[0].ratingCount,
+    ratingDistribution: stats[0].ratingDistribution,
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// HELPER: Update story stats
+// ═══════════════════════════════════════════════════════════════════
+
+async function updateStoryStats(db: ReturnType<typeof drizzle>, storyId: string) {
+  const listenCounts = await db
+    .select({
+      eventType: storyListens.eventType,
+      count: sql<number>`count(*)`,
+    })
+    .from(storyListens)
+    .where(eq(storyListens.storyId, storyId))
+    .groupBy(storyListens.eventType);
+
+  const startCount = listenCounts.find(l => l.eventType === 'start')?.count || 0;
+  const completeCount = listenCounts.find(l => l.eventType === 'complete')?.count || 0;
+
+  const uniqueListeners = await db
+    .select({ count: sql<number>`count(DISTINCT COALESCE(user_id, device_id))` })
+    .from(storyListens)
+    .where(eq(storyListens.storyId, storyId));
+
+  const avgDuration = await db
+    .select({ avg: sql<number>`avg(duration_seconds)` })
+    .from(storyListens)
+    .where(and(
+      eq(storyListens.storyId, storyId),
+      eq(storyListens.eventType, 'complete'),
+      isNotNull(storyListens.durationSeconds)
+    ));
+
+  const ratingStats = await db
+    .select({
+      count: sql<number>`count(*)`,
+      avg: sql<number>`avg(stars)`,
+    })
+    .from(storyRatings)
+    .where(eq(storyRatings.storyId, storyId));
+
+  const ratingDist = await db
+    .select({
+      stars: storyRatings.stars,
+      count: sql<number>`count(*)`,
+    })
+    .from(storyRatings)
+    .where(eq(storyRatings.storyId, storyId))
+    .groupBy(storyRatings.stars);
+
+  const distribution: Record<string, number> = {};
+  ratingDist.forEach(r => {
+    distribution[r.stars.toString()] = r.count;
+  });
+
+  const completionRate = startCount > 0 ? completeCount / startCount : 0;
+  const trendingScore = completeCount * 2 + (ratingStats[0]?.count || 0) * 3;
+
+  const existingStats = await db
+    .select()
+    .from(storyStats)
+    .where(eq(storyStats.storyId, storyId))
+    .limit(1);
+
+  if (existingStats.length > 0) {
+    await db
+      .update(storyStats)
+      .set({
+        listenCount: startCount,
+        completeCount,
+        uniqueListeners: uniqueListeners[0]?.count || 0,
+        completionRate,
+        avgDurationSeconds: Math.round(avgDuration[0]?.avg || 0),
+        ratingCount: ratingStats[0]?.count || 0,
+        ratingAvg: ratingStats[0]?.avg || 0,
+        ratingDistribution: distribution,
+        trendingScore,
+        lastCalculatedAt: new Date(),
+      })
+      .where(eq(storyStats.storyId, storyId));
+  } else {
+    await db.insert(storyStats).values({
+      storyId,
+      listenCount: startCount,
+      completeCount,
+      uniqueListeners: uniqueListeners[0]?.count || 0,
+      completionRate,
+      avgDurationSeconds: Math.round(avgDuration[0]?.avg || 0),
+      ratingCount: ratingStats[0]?.count || 0,
+      ratingAvg: ratingStats[0]?.avg || 0,
+      ratingDistribution: distribution,
+      trendingScore,
+    });
+  }
+}
 
 export default app;
 

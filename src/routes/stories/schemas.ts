@@ -9,31 +9,36 @@ import { z } from 'zod';
 
 export const createStorySchema = z.object({
   title: z.string().min(1),
-  subtitle: z.string().optional(),
-  author: z.string().optional(),
-  contentLibraryId: z.string().optional(),
-  description: z.string().optional(),
-  topic: z.string().optional(),
+  subtitle: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  contentLibraryId: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  topic: z.string().nullable().optional(),
   hskLevel: z.number().int().min(1).max(9),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
-  estimatedMinutes: z.number().int().min(1).optional(),
+  estimatedMinutes: z.number().int().min(1).nullable().optional(),
   accessTier: z.enum(['free', 'premium']).optional(),
   pauseBetweenSegmentsMs: z.number().int().min(0).max(2000).optional(),
+  storyType: z.enum(['text', 'dialogue']).optional(),
+  practiceBlocks: z.array(z.any()).nullable().optional(),
+  seriesId: z.string().nullable().optional(),
+  seriesOrder: z.number().int().nullable().optional(),
 });
 
 export const updateStorySchema = z.object({
   title: z.string().min(1).optional(),
-  subtitle: z.string().optional(),
-  author: z.string().optional(),
-  contentLibraryId: z.string().optional(),
-  description: z.string().optional(),
-  topic: z.string().optional(),
+  subtitle: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  contentLibraryId: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  topic: z.string().nullable().optional(),
   hskLevel: z.number().int().min(1).max(9).optional(),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
-  estimatedMinutes: z.number().int().min(1).optional(),
+  estimatedMinutes: z.number().int().min(1).nullable().optional(),
   isPublished: z.boolean().optional(),
   accessTier: z.enum(['free', 'premium']).optional(),
   pauseBetweenSegmentsMs: z.number().int().min(0).max(2000).optional(),
+  practiceBlocks: z.array(z.any()).nullable().optional(),
 });
 
 export const searchSchema = z.object({
@@ -73,6 +78,7 @@ export const bulkSegmentsSchema = z.object({
     chinese: z.string().min(1),
     pinyin: z.string(),
     english: z.string(),
+    speaker: z.string().optional(), // For dialogue stories
     audioR2Key: z.string().optional(),
     audioDurationMs: z.number().int().optional(),
   })),

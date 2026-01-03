@@ -14,7 +14,7 @@ import { eq, or, inArray, and, desc, asc, ne } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import type { AppEnv } from '../types/app';
 import { jwtAuthMiddleware } from '../middleware/jwt-auth';
-import { lessons, stories, testDevices, releases, vocabulary, lessonBlocks } from '../schema';
+import { lessons, stories, testDevices, releases, vocabulary, lessonBlocks, storyShowcaseSections } from '../schema';
 import { nanoid } from 'nanoid';
 import { adminRateLimit } from '../middleware/rate-limit';
 import { logWithContext } from '../utils/logger';
@@ -419,10 +419,30 @@ app.get('/preview-release/:hskLevel', async (c) => {
     .where(eq(lessons.hskLevel, hskLevel))
     .orderBy(asc(lessons.lessonNumber));
 
+  // Get all stories for this HSK level
+  const allStories = await db
+    .select({
+      id: stories.id,
+      title: stories.title,
+      subtitle: stories.subtitle,
+      contentStatus: stories.contentStatus,
+      isPublished: stories.isPublished,
+      updatedAt: stories.updatedAt,
+      difficulty: stories.difficulty,
+      estimatedMinutes: stories.estimatedMinutes,
+    })
+    .from(stories)
+    .where(eq(stories.hskLevel, hskLevel))
+    .orderBy(asc(stories.title));
+
   // Categorize lessons
   const liveLessons = allLessons.filter(l => l.contentStatus === 'live' && l.isPublished);
   const draftLessons = allLessons.filter(l => l.contentStatus === 'draft' || !l.contentStatus);
   const stagingLessons = allLessons.filter(l => l.contentStatus === 'staging');
+
+  // Categorize stories
+  const publishedStories = allStories.filter(s => s.isPublished);
+  const draftStories = allStories.filter(s => !s.isPublished);
 
   // Get ALL vocabulary for this HSK level with full details for selection
   const vocabList = await db
@@ -606,6 +626,27 @@ app.get('/preview-release/:hskLevel', async (c) => {
       totalLive: liveLessons.length,
       totalLiveWithChanges: liveLessonsWithChanges.length,
     },
+    // Stories section for Phase 1 integration
+    stories: {
+      published: publishedStories.map(s => ({
+        id: s.id,
+        title: s.title,
+        subtitle: s.subtitle,
+        difficulty: s.difficulty,
+        estimatedMinutes: s.estimatedMinutes,
+        updatedAt: s.updatedAt,
+      })),
+      drafts: draftStories.map(s => ({
+        id: s.id,
+        title: s.title,
+        subtitle: s.subtitle,
+        difficulty: s.difficulty,
+        estimatedMinutes: s.estimatedMinutes,
+        updatedAt: s.updatedAt,
+      })),
+      totalPublished: publishedStories.length,
+      totalDrafts: draftStories.length,
+    },
   });
 });
 
@@ -620,26 +661,31 @@ app.post('/ship', async (c) => {
   const { 
     hskLevel, 
     lessonIds, 
+    storyIds,
     version, 
     releaseNotes,
     vocabMode,
     selectedVocabIds,
   } = await c.req.json<{
     hskLevel: number;
-    lessonIds: string[];
+    lessonIds?: string[];
+    storyIds?: string[];
     version: string;
     releaseNotes?: string;
     vocabMode?: 'all' | 'lessons_only' | 'selected';
     selectedVocabIds?: string[];
   }>();
 
-  if (!hskLevel || !lessonIds || lessonIds.length === 0 || !version) {
-    return c.json({ error: 'hskLevel, lessonIds, and version are required' }, 400);
+  const hasLessons = lessonIds && lessonIds.length > 0;
+  const hasStories = storyIds && storyIds.length > 0;
+
+  if (!hskLevel || (!hasLessons && !hasStories) || !version) {
+    return c.json({ error: 'hskLevel, version, and at least one of lessonIds/storyIds are required' }, 400);
   }
 
   logWithContext('info', 'release.ship_start', {
     requestId: c.get('requestId'),
-    meta: { hskLevel, lessonCount: lessonIds.length, version, vocabMode },
+    meta: { hskLevel, lessonCount: lessonIds?.length || 0, storyCount: storyIds?.length || 0, version, vocabMode },
   });
 
   // Get current live lessons to calculate changes
@@ -653,9 +699,10 @@ app.post('/ship', async (c) => {
 
   const currentLiveIds = currentLive.map(l => l.id);
   
-  // Calculate what's being added vs updated
-  const newIds = lessonIds.filter(id => !currentLiveIds.includes(id));
-  const updatedIds = lessonIds.filter(id => currentLiveIds.includes(id));
+  // Calculate what's being added vs updated (only if we have lessons)
+  const effectiveLessonIds = lessonIds || [];
+  const newIds = effectiveLessonIds.filter(id => !currentLiveIds.includes(id));
+  const updatedIds = effectiveLessonIds.filter(id => currentLiveIds.includes(id));
 
   // Calculate vocab to ship based on mode
   let vocabCandidates: string[] = [];
@@ -729,20 +776,48 @@ app.post('/ship', async (c) => {
     });
   }
 
-  try {
-    // 1. Update all selected lessons to live
-    await db
-      .update(lessons)
-      .set({
-        contentStatus: 'live',
-        isPublished: true,
-        updatedAt: new Date(),
-      })
-      .where(inArray(lessons.id, lessonIds));
+  // Count stories to publish/unpublish
+  let storiesPublished = 0;
+  let storiesUnpublished = 0;
 
-    // 2. Generate content hash (including vocab)
+  try {
+    // 1. Update all selected lessons to live (if any)
+    if (hasLessons && lessonIds) {
+      await db
+        .update(lessons)
+        .set({
+          contentStatus: 'live',
+          isPublished: true,
+          updatedAt: new Date(),
+        })
+        .where(inArray(lessons.id, lessonIds));
+    }
+
+    // 1b. Update all selected stories to published (if any)
+    if (hasStories && storyIds) {
+      // Get current story states to count changes
+      const storyStates = await db
+        .select({ id: stories.id, isPublished: stories.isPublished })
+        .from(stories)
+        .where(inArray(stories.id, storyIds));
+      
+      storiesPublished = storyStates.filter(s => !s.isPublished).length;
+      
+      await db
+        .update(stories)
+        .set({
+          contentStatus: 'live',
+          isPublished: true,
+          publishedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(inArray(stories.id, storyIds));
+    }
+
+    // 2. Generate content hash (including vocab and stories)
     const contentHash = await generateContentHash({ 
-      lessonIds: lessonIds.sort(), 
+      lessonIds: (lessonIds || []).sort(), 
+      storyIds: (storyIds || []).sort(),
       vocabIds: vocabToShip.sort(),
       version 
     });
@@ -759,7 +834,7 @@ app.post('/ship', async (c) => {
       lessonsUpdated: updatedIds.length,
       lessonsRemoved: 0, // We don't remove lessons in this flow
       vocabularyAdded: vocabToShip.length,
-      lessonIds,
+      lessonIds: lessonIds || [],
       contentHash,
     });
 
@@ -769,7 +844,8 @@ app.post('/ship', async (c) => {
         releaseId, 
         hskLevel, 
         version, 
-        lessonsShipped: lessonIds.length,
+        lessonsShipped: lessonIds?.length || 0,
+        storiesShipped: storyIds?.length || 0,
         vocabShipped: vocabToShip.length,
         vocabMode: mode,
         new: newIds.length,
@@ -783,9 +859,11 @@ app.post('/ship', async (c) => {
         id: releaseId,
         version,
         hskLevel,
-        lessonsShipped: lessonIds.length,
+        lessonsShipped: lessonIds?.length || 0,
         lessonsAdded: newIds.length,
         lessonsUpdated: updatedIds.length,
+        storiesShipped: storyIds?.length || 0,
+        storiesPublished,
         vocabShipped: vocabToShip.length,
         vocabSkipped: skippedVocab.length,
         vocabMode: mode,
@@ -856,6 +934,14 @@ app.get('/all-hsk-status', async (c) => {
     })
     .from(lessons);
 
+  // Get all stories grouped by HSK level
+  const allStories = await db
+    .select({
+      hskLevel: stories.hskLevel,
+      isPublished: stories.isPublished,
+    })
+    .from(stories);
+
   // Get latest release per HSK level
   const allReleases = await db
     .select()
@@ -870,15 +956,22 @@ app.get('/all-hsk-status', async (c) => {
     latestVersion: string | null;
     lastRelease: string | null;
     hasUnshippedChanges: boolean;
+    // Story counts
+    storiesDraft: number;
+    storiesPublished: number;
   }> = {};
 
   for (let level = 1; level <= 9; level++) {
     const levelLessons = allLessons.filter(l => l.hskLevel === level);
+    const levelStories = allStories.filter(s => s.hskLevel === level);
     const latestRelease = allReleases.find(r => r.hskLevel === level);
     
     const draft = levelLessons.filter(l => l.contentStatus === 'draft' || !l.contentStatus).length;
     const staging = levelLessons.filter(l => l.contentStatus === 'staging').length;
     const live = levelLessons.filter(l => l.contentStatus === 'live' && l.isPublished).length;
+
+    const storiesDraft = levelStories.filter(s => !s.isPublished).length;
+    const storiesPublished = levelStories.filter(s => s.isPublished).length;
 
     hskStatus[level] = {
       draft,
@@ -886,7 +979,9 @@ app.get('/all-hsk-status', async (c) => {
       live,
       latestVersion: latestRelease?.version || null,
       lastRelease: latestRelease?.createdAt || null,
-      hasUnshippedChanges: draft > 0 || staging > 0,
+      hasUnshippedChanges: draft > 0 || staging > 0 || storiesDraft > 0,
+      storiesDraft,
+      storiesPublished,
     };
   }
 
@@ -1072,6 +1167,189 @@ app.post('/sync-vocab/:hskLevel', async (c) => {
       details: (error as Error).message,
     }, 500);
   }
+});
+
+// ═══════════════════════════════════════════════════════════
+// SHOWCASE SECTION MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * GET /v1/control-center/showcase-sections
+ * Get all showcase sections for management
+ */
+app.get('/showcase-sections', async (c) => {
+  const db = drizzle(c.env.DB);
+
+  const sections = await db
+    .select()
+    .from(storyShowcaseSections)
+    .orderBy(asc(storyShowcaseSections.orderIndex));
+
+  return c.json({
+    sections: sections.map(s => ({
+      id: s.id,
+      title: s.title,
+      subtitle: s.subtitle,
+      icon: s.icon,
+      sectionType: s.sectionType,
+      config: s.config,
+      curatedStoryIds: s.curatedStoryIds,
+      orderIndex: s.orderIndex,
+      isActive: s.isActive,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    })),
+    total: sections.length,
+  });
+});
+
+/**
+ * POST /v1/control-center/showcase-sections
+ * Create a new showcase section
+ */
+app.post('/showcase-sections', async (c) => {
+  const db = drizzle(c.env.DB);
+  const body = await c.req.json<{
+    title: string;
+    subtitle?: string;
+    icon?: string;
+    sectionType: string;
+    config?: Record<string, unknown>;
+    curatedStoryIds?: string[];
+    orderIndex?: number;
+    isActive?: boolean;
+  }>();
+
+  if (!body.title || !body.sectionType) {
+    return c.json({ error: 'title and sectionType are required' }, 400);
+  }
+
+  // Get max order index
+  const maxOrder = await db
+    .select({ max: sql<number>`max(order_index)` })
+    .from(storyShowcaseSections);
+
+  const sectionId = nanoid();
+  await db.insert(storyShowcaseSections).values({
+    id: sectionId,
+    title: body.title,
+    subtitle: body.subtitle || null,
+    icon: body.icon || null,
+    sectionType: body.sectionType,
+    config: body.config || null,
+    curatedStoryIds: body.curatedStoryIds || null,
+    orderIndex: body.orderIndex ?? (maxOrder[0]?.max ?? 0) + 1,
+    isActive: body.isActive ?? true,
+  });
+
+  logWithContext('info', 'showcase.section_created', {
+    requestId: c.get('requestId'),
+    meta: { sectionId, title: body.title, type: body.sectionType },
+  });
+
+  return c.json({ success: true, id: sectionId });
+});
+
+/**
+ * PUT /v1/control-center/showcase-sections/:id
+ * Update a showcase section
+ */
+app.put('/showcase-sections/:id', async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  const body = await c.req.json<{
+    title?: string;
+    subtitle?: string;
+    icon?: string;
+    sectionType?: string;
+    config?: Record<string, unknown>;
+    curatedStoryIds?: string[];
+    orderIndex?: number;
+    isActive?: boolean;
+  }>();
+
+  // Check section exists
+  const existing = await db
+    .select()
+    .from(storyShowcaseSections)
+    .where(eq(storyShowcaseSections.id, id))
+    .limit(1);
+
+  if (existing.length === 0) {
+    return c.json({ error: 'Section not found' }, 404);
+  }
+
+  await db
+    .update(storyShowcaseSections)
+    .set({
+      title: body.title ?? existing[0].title,
+      subtitle: body.subtitle !== undefined ? body.subtitle : existing[0].subtitle,
+      icon: body.icon !== undefined ? body.icon : existing[0].icon,
+      sectionType: body.sectionType ?? existing[0].sectionType,
+      config: body.config !== undefined ? body.config : existing[0].config,
+      curatedStoryIds: body.curatedStoryIds !== undefined ? body.curatedStoryIds : existing[0].curatedStoryIds,
+      orderIndex: body.orderIndex ?? existing[0].orderIndex,
+      isActive: body.isActive ?? existing[0].isActive,
+      updatedAt: new Date(),
+    })
+    .where(eq(storyShowcaseSections.id, id));
+
+  logWithContext('info', 'showcase.section_updated', {
+    requestId: c.get('requestId'),
+    meta: { sectionId: id },
+  });
+
+  return c.json({ success: true });
+});
+
+/**
+ * DELETE /v1/control-center/showcase-sections/:id
+ * Delete a showcase section
+ */
+app.delete('/showcase-sections/:id', async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+
+  await db
+    .delete(storyShowcaseSections)
+    .where(eq(storyShowcaseSections.id, id));
+
+  logWithContext('info', 'showcase.section_deleted', {
+    requestId: c.get('requestId'),
+    meta: { sectionId: id },
+  });
+
+  return c.json({ success: true });
+});
+
+/**
+ * POST /v1/control-center/showcase-sections/reorder
+ * Reorder showcase sections
+ */
+app.post('/showcase-sections/reorder', async (c) => {
+  const db = drizzle(c.env.DB);
+  const { order } = await c.req.json<{
+    order: Array<{ id: string; orderIndex: number }>;
+  }>();
+
+  if (!order || !Array.isArray(order)) {
+    return c.json({ error: 'order array is required' }, 400);
+  }
+
+  // Update each section's order
+  for (const item of order) {
+    await db
+      .update(storyShowcaseSections)
+      .set({ orderIndex: item.orderIndex, updatedAt: new Date() })
+      .where(eq(storyShowcaseSections.id, item.id));
+  }
+
+  logWithContext('info', 'showcase.sections_reordered', {
+    requestId: c.get('requestId'),
+    meta: { count: order.length },
+  });
+
+  return c.json({ success: true });
 });
 
 export default app;

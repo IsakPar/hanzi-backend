@@ -12,7 +12,6 @@ import {
   createSentenceSchema,
   updateSentenceSchema,
   reorderSentencesSchema,
-  bulkSegmentsSchema,
   addVocabularySchema,
   createQuestionSchema,
 } from './schemas';
@@ -108,31 +107,8 @@ app.post('/:id/sentences/reorder', zValidator('json', reorderSentencesSchema), a
   }
 });
 
-/**
- * POST /stories/:id/segments/bulk
- * Bulk save segments - creates new, updates existing, deletes removed
- */
-app.post('/:id/segments/bulk', zValidator('json', bulkSegmentsSchema), async (c) => {
-  const storyId = c.req.param('id');
-  const { segments } = c.req.valid('json');
-  const { stories } = getServices(c.env);
-
-  try {
-    // Add orderIndex based on array position
-    const segmentsWithOrder = segments.map((seg, idx) => ({
-      ...seg,
-      orderIndex: idx,
-    }));
-    const result = await stories.bulkSaveSegments(storyId, segmentsWithOrder);
-    return c.json({ success: true, ...result });
-  } catch (err) {
-    logWithContext('error', 'stories.segments.bulk_failed', {
-      requestId: c.get('requestId'),
-      meta: { storyId, segmentCount: segments.length, error: (err as Error).message },
-    });
-    return c.json({ error: 'Failed to save segments' }, 500);
-  }
-});
+// NOTE: /:id/segments/bulk route is defined in stories/index.ts
+// It was moved there to ensure proper route matching before sub-routers
 
 // ═══════════════════════════════════════════════════════════
 // VOCABULARY

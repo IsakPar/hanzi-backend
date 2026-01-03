@@ -17,9 +17,13 @@
  */
 
 import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
 import { jwtAuthMiddleware } from '../../middleware/jwt-auth';
 import type { AppEnv } from '../../types/app';
 import { apiRateLimit } from '../../middleware/rate-limit';
+import { bulkSegmentsSchema } from './schemas';
+import { createStoriesDomain } from '../../domains/stories';
+import { logWithContext } from '../../utils/logger';
 
 // Sub-routers
 import storiesCrud from './stories-crud';
@@ -67,8 +71,42 @@ app.get('/template', (c) => {
 // All other stories endpoints require admin auth
 app.use('/*', jwtAuthMiddleware({ allowRoles: ['admin', 'user'] }));
 
-// Mount sub-routers
-// Order matters: more specific routes first
+// ═══════════════════════════════════════════════════════════
+// SEGMENTS/BULK ROUTE - MUST BE BEFORE SUB-ROUTERS
+// This route is defined here (not in stories-content.ts) to ensure
+// it's matched before any sub-router catch-all routes
+// ═══════════════════════════════════════════════════════════
+
+app.post('/:id/segments/bulk', zValidator('json', bulkSegmentsSchema), async (c) => {
+  const storyId = c.req.param('id');
+  const { segments } = c.req.valid('json');
+  const getServices = (env: AppEnv['Bindings']) => createStoriesDomain(env);
+  const { stories } = getServices(c.env);
+
+  logWithContext('info', 'stories.segments.bulk_direct', {
+    requestId: c.get('requestId'),
+    meta: { storyId, segmentCount: segments.length },
+  });
+
+  try {
+    const segmentsWithOrder = segments.map((seg, idx) => ({
+      ...seg,
+      orderIndex: idx,
+    }));
+    const result = await stories.bulkSaveSegments(storyId, segmentsWithOrder);
+    return c.json({ success: true, ...result });
+  } catch (err) {
+    logWithContext('error', 'stories.segments.bulk_failed', {
+      requestId: c.get('requestId'),
+      meta: { storyId, segmentCount: segments.length, error: (err as Error).message },
+    });
+    return c.json({ error: 'Failed to save segments' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// SUB-ROUTERS
+// ═══════════════════════════════════════════════════════════
 
 // Export routes (/:id/export)
 app.route('/', storiesExport);
@@ -89,4 +127,3 @@ app.route('/', storiesContent);
 app.route('/', storiesCrud);
 
 export default app;
-

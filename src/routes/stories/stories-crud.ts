@@ -55,6 +55,11 @@ app.post('/', zValidator('json', createStorySchema), async (c) => {
   const analytics = new AnalyticsService(c.env.DB);
 
   try {
+    logWithContext('info', 'stories.create_attempt', {
+      requestId: c.get('requestId'),
+      meta: { data: JSON.stringify(data) },
+    });
+    
     const story = await stories.createStory(data);
 
     await analytics.record({
@@ -66,11 +71,48 @@ app.post('/', zValidator('json', createStorySchema), async (c) => {
 
     return c.json({ story }, 201);
   } catch (err) {
+    const error = err as Error;
     logWithContext('error', 'stories.create_failed', {
       requestId: c.get('requestId'),
-      meta: { error: (err as Error).message },
+      meta: { 
+        error: error.message, 
+        stack: error.stack,
+        cause: (error as any).cause,
+        data: JSON.stringify(data),
+      },
     });
-    return c.json({ error: 'Failed to create story' }, 500);
+    return c.json({ error: 'Failed to create story', details: error.message }, 500);
+  }
+});
+
+/**
+ * GET /stories/lookup
+ * Lookup story by title + seriesId (for import deduplication)
+ * Query params: title (required), seriesId (optional)
+ */
+app.get('/lookup', async (c) => {
+  const title = c.req.query('title');
+  const seriesId = c.req.query('seriesId') || null;
+
+  if (!title) {
+    return c.json({ error: 'title query param required' }, 400);
+  }
+
+  const { stories } = getServices(c.env);
+
+  try {
+    const story = await stories.getStoryByTitleAndSeries(title, seriesId);
+    if (!story) {
+      return c.json({ exists: false, story: null });
+    }
+
+    return c.json({ exists: true, story });
+  } catch (err) {
+    logWithContext('error', 'stories.lookup_failed', {
+      requestId: c.get('requestId'),
+      meta: { title, seriesId, error: (err as Error).message },
+    });
+    return c.json({ error: 'Lookup failed' }, 500);
   }
 });
 

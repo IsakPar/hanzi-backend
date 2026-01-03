@@ -1241,6 +1241,109 @@ export const userActivityLog = sqliteTable('user_activity_log', {
   dateIdx: index('user_activity_log_date_idx').on(table.activityDate),
 }));
 
+// ═══════════════════════════════════════════════════════════
+// STORY ANALYTICS & SHOWCASE SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+// --- STORY LISTENS (Event tracking) ---
+export const storyListens = sqliteTable('story_listens', {
+  id: text('id').primaryKey(),
+  storyId: text('story_id').notNull().references(() => stories.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  deviceId: text('device_id'),
+  
+  // Event type: 'start', 'complete', 'drop_off'
+  eventType: text('event_type').notNull(),
+  
+  // Progress tracking
+  progressPercent: integer('progress_percent').default(0),
+  lastSentenceIndex: integer('last_sentence_index').default(0),
+  durationSeconds: integer('duration_seconds'),
+  
+  // Context
+  source: text('source'), // 'showcase', 'search', 'series', 'recommendation'
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  storyIdx: index('story_listens_story_idx').on(table.storyId),
+  userIdx: index('story_listens_user_idx').on(table.userId),
+  deviceIdx: index('story_listens_device_idx').on(table.deviceId),
+  eventIdx: index('story_listens_event_idx').on(table.eventType),
+  createdIdx: index('story_listens_created_idx').on(table.createdAt),
+}));
+
+// --- STORY RATINGS ---
+export const storyRatings = sqliteTable('story_ratings', {
+  id: text('id').primaryKey(),
+  storyId: text('story_id').notNull().references(() => stories.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id'),
+  
+  stars: integer('stars').notNull(), // 1-5
+  feedback: text('feedback'),
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  storyIdx: index('story_ratings_story_idx').on(table.storyId),
+  userIdx: index('story_ratings_user_idx').on(table.userId),
+  starsIdx: index('story_ratings_stars_idx').on(table.stars),
+}));
+
+// --- STORY STATS (Cached aggregates) ---
+export const storyStats = sqliteTable('story_stats', {
+  storyId: text('story_id').primaryKey().references(() => stories.id, { onDelete: 'cascade' }),
+  
+  listenCount: integer('listen_count').notNull().default(0),
+  completeCount: integer('complete_count').notNull().default(0),
+  uniqueListeners: integer('unique_listeners').notNull().default(0),
+  
+  completionRate: real('completion_rate').default(0),
+  avgDurationSeconds: integer('avg_duration_seconds').default(0),
+  
+  ratingCount: integer('rating_count').notNull().default(0),
+  ratingAvg: real('rating_avg').default(0),
+  ratingDistribution: text('rating_distribution', { mode: 'json' }).$type<Record<string, number>>(),
+  
+  trendingScore: real('trending_score').default(0),
+  
+  lastCalculatedAt: integer('last_calculated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  listenIdx: index('story_stats_listen_idx').on(table.listenCount),
+  completeIdx: index('story_stats_complete_idx').on(table.completeCount),
+  ratingIdx: index('story_stats_rating_idx').on(table.ratingAvg),
+  trendingIdx: index('story_stats_trending_idx').on(table.trendingScore),
+}));
+
+// --- SHOWCASE SECTIONS (Configurable mobile sections) ---
+export const storyShowcaseSections = sqliteTable('story_showcase_sections', {
+  id: text('id').primaryKey(),
+  
+  title: text('title').notNull(),
+  subtitle: text('subtitle'),
+  icon: text('icon'),
+  
+  // 'new_releases', 'popular', 'trending', 'series', 'curated', 'by_hsk', 'by_topic'
+  sectionType: text('section_type').notNull(),
+  
+  // JSON config: {"hskLevel": 1, "limit": 10, "sortBy": "publishedAt"}
+  config: text('config', { mode: 'json' }).$type<Record<string, unknown>>(),
+  
+  // For 'curated' type: ["story-id-1", "story-id-2"]
+  curatedStoryIds: text('curated_story_ids', { mode: 'json' }).$type<string[]>(),
+  
+  orderIndex: integer('order_index').notNull().default(0),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(strftime('%s', 'now'))`),
+}, (table) => ({
+  orderIdx: index('story_showcase_order_idx').on(table.orderIndex),
+  activeIdx: index('story_showcase_active_idx').on(table.isActive),
+  typeIdx: index('story_showcase_type_idx').on(table.sectionType),
+}));
+
 // --- STORY READING EVENTS ---
 export const storyReadingEvents = sqliteTable('story_reading_events', {
   id: text('id').primaryKey(),

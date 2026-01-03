@@ -56,7 +56,7 @@ export class StoriesService {
       seriesId: params.seriesId,
       seriesOrder: params.seriesOrder,
       storyType: params.storyType || 'text',
-      practiceBlocks: params.practiceBlocks ? JSON.stringify(params.practiceBlocks) : null,
+      practiceBlocks: params.practiceBlocks ?? null, // Drizzle's mode: 'json' handles serialization
       isPublished: false,
       createdAt: now,
       updatedAt: now,
@@ -72,6 +72,25 @@ export class StoriesService {
       .select()
       .from(stories)
       .where(eq(stories.id, id))
+      .limit(1);
+
+    return results[0] || null;
+  }
+
+  async getStoryByTitleAndSeries(title: string, seriesId: string | null): Promise<Story | null> {
+    const conditions = [eq(stories.title, title)];
+    
+    if (seriesId) {
+      conditions.push(eq(stories.seriesId, seriesId));
+    } else {
+      // For standalone stories (no series), check that seriesId is null
+      conditions.push(sql`${stories.seriesId} IS NULL`);
+    }
+
+    const results = await this.db
+      .select()
+      .from(stories)
+      .where(and(...conditions))
       .limit(1);
 
     return results[0] || null;
@@ -112,9 +131,9 @@ export class StoriesService {
     if (params.estimatedMinutes !== undefined) updates.estimatedMinutes = params.estimatedMinutes;
     if (params.storyType !== undefined) updates.storyType = params.storyType;
 
-    // Handle JSON serialization for practiceBlocks
+    // Drizzle's mode: 'json' handles serialization automatically
     if (params.practiceBlocks !== undefined) {
-      updates.practiceBlocks = params.practiceBlocks ? JSON.stringify(params.practiceBlocks) : null;
+      updates.practiceBlocks = params.practiceBlocks ?? null;
     }
 
     // Handle publishing logic

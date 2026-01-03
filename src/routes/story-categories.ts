@@ -26,10 +26,10 @@ app.use('/*', apiRateLimit);
 const createCategorySchema = z.object({
   title: z.string().min(1).max(100),
   slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   displayType: z.enum(['horizontal', 'grid', 'featured', 'series']).optional().default('horizontal'),
   filterType: z.enum(['recent', 'popular', 'manual', 'hsk', 'series']).optional().default('manual'),
-  filterValue: z.record(z.unknown()).optional(),
+  filterValue: z.record(z.unknown()).nullable().optional(),
   isPublished: z.boolean().optional().default(true),
   seeAllEnabled: z.boolean().optional().default(true),
   maxItems: z.number().int().min(1).max(50).optional().default(10),
